@@ -78,7 +78,7 @@ class SupportScreen extends StatelessWidget {
                         border: Border.all(color: Colors.white10),
                       ),
                       child: Text(
-                        'Это приложение предназначено для управления парфюмерными системами. Мы постоянно работаем над улучшением совместимости с различными версиями устройств.',
+                        'Это приложение предназначено для управления парфюмерными системами автомобилей Li Auto (Lixiang). Мы постоянно работаем над улучшением совместимости с различными версиями устройств.',
                         textAlign: TextAlign.center,
                         style: GoogleFonts.outfit(
                           fontSize: 14,
