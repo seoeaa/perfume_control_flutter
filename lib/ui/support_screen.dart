@@ -1,9 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'widgets/glass_card.dart';
 
 class SupportScreen extends StatelessWidget {
   const SupportScreen({super.key});
+
+  Future<void> _launchTelegram() async {
+    final Uri url = Uri.parse('https://t.me/slaveaa');
+    try {
+      if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+        throw 'Could not launch $url';
+      }
+    } catch (e) {
+      debugPrint('Error launching URL: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -71,6 +83,22 @@ class SupportScreen extends StatelessWidget {
                         style: GoogleFonts.outfit(
                           fontSize: 14,
                           color: Colors.white,
+                        ),
+                      ),
+                    const SizedBox(height: 32),
+                    ElevatedButton.icon(
+                      onPressed: _launchTelegram,
+                      icon: const Icon(Icons.telegram, size: 28),
+                      label: Text(
+                        'Написать @slaveaa',
+                        style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w600),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF0088CC), // Telegram Blue
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
                         ),
                       ),
                     ),
