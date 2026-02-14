@@ -21,6 +21,9 @@
 - **UI**: Google Fonts (Outfit), Custom Glassmorphism Design
 - **CI/CD**: GitHub Actions (Android & iOS)
 
+> [!NOTE]
+> Последняя версия приложения всегда доступна в разделе **Releases**.
+
 ## Запуск
 ```bash
 flutter pub get
