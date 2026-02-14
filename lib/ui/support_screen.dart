@@ -83,8 +83,8 @@ class SupportScreen extends StatelessWidget {
                         style: GoogleFonts.outfit(
                           fontSize: 14,
                           color: Colors.white,
-                        ),
                       ),
+                    ),
                     const SizedBox(height: 32),
                     ElevatedButton.icon(
                       onPressed: _launchTelegram,
