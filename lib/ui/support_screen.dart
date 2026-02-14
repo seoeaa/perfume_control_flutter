@@ -1,21 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'widgets/glass_card.dart';
 
 class SupportScreen extends StatelessWidget {
   const SupportScreen({super.key});
-
-  Future<void> _launchTelegram() async {
-    final Uri url = Uri.parse('https://t.me/slaveaa');
-    try {
-      if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-         throw 'Could not launch $url';
-      }
-    } catch (e) {
-      debugPrint('Error launching URL: $e');
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -34,11 +22,7 @@ class SupportScreen extends StatelessWidget {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF0F172A),
-              Color(0xFF1E293B),
-              Color(0xFF334155),
-            ],
+            colors: [Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF334155)],
           ),
         ),
         child: Center(
@@ -66,7 +50,7 @@ class SupportScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Существует несколько версий контроллеров. Если программа не работает корректно, пожалуйста, подключитесь к устройству, скопируйте лог (нажав на иконку консоли на главном экране) и пришлите его нам в Telegram.',
+                      'Существует несколько версий контроллеров. Если программа не работает корректно, пожалуйста, подключитесь к устройству, скопируйте лог (нажав на иконку консоли на главном экране) и пришлите его разработчикам.',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.outfit(
                         fontSize: 14,
@@ -81,43 +65,12 @@ class SupportScreen extends StatelessWidget {
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(color: Colors.white10),
                       ),
-                      child: Column(
-                        children: [
-                          Text(
-                            'Если программа вам понравилась, вы можете отблагодарить автора:',
-                            textAlign: TextAlign.center,
-                            style: GoogleFonts.outfit(
-                              fontSize: 14,
-                              color: Colors.white,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          SelectableText(
-                            'Сбербанк / Тинькофф\n89969226666',
-                            textAlign: TextAlign.center,
-                            style: GoogleFonts.outfit(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.greenAccent,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 32),
-                    ElevatedButton.icon(
-                      onPressed: _launchTelegram,
-                      icon: const Icon(Icons.telegram, size: 28),
-                      label: Text(
-                        'Написать @slaveaa',
-                        style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w600),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0088CC), // Telegram Blue
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
+                      child: Text(
+                        'Это приложение предназначено для управления парфюмерными системами. Мы постоянно работаем над улучшением совместимости с различными версиями устройств.',
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.outfit(
+                          fontSize: 14,
+                          color: Colors.white,
                         ),
                       ),
                     ),
