@@ -83,6 +83,7 @@ class SupportScreen extends StatelessWidget {
                         style: GoogleFonts.outfit(
                           fontSize: 14,
                           color: Colors.white,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 32),
@@ -91,12 +92,20 @@ class SupportScreen extends StatelessWidget {
                       icon: const Icon(Icons.telegram, size: 28),
                       label: Text(
                         'Написать @slaveaa',
-                        style: GoogleFonts.outfit(fontSize: 16, fontWeight: FontWeight.w600),
+                        style: GoogleFonts.outfit(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0088CC), // Telegram Blue
+                        backgroundColor: const Color(
+                          0xFF0088CC,
+                        ), // Telegram Blue
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 16,
+                        ),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(16),
                         ),
