@@ -28,14 +28,6 @@ jobs:
             target: iOS
             artifact_path: LIPerfume.ipa
             asset_name: LIPerfume.ipa
-          - os: ubuntu-latest
-            target: Linux
-            artifact_path: build/linux/x64/release/bundle/
-            asset_name: LIPerfume-Linux.tar.gz
-          - os: windows-latest
-            target: Windows
-            artifact_path: build/windows/x64/runner/Release/
-            asset_name: LIPerfume-Windows.zip
 
     steps:
       - name: Checkout code
@@ -53,12 +45,6 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Install Linux Dependencies
-        if: matrix.target == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
-
       - name: Install dependencies
         run: flutter pub get
 
@@ -75,20 +61,6 @@ jobs:
           zip -r LIPerfume.ipa Payload
           rm -rf Payload
 
-      - name: Build Linux App
-        if: matrix.target == 'Linux'
-        run: |
-          flutter config --enable-linux-desktop
-          flutter build linux --release
-          tar -czvf LIPerfume-Linux.tar.gz -C build/linux/x64/release/bundle .
-
-      - name: Build Windows App
-        if: matrix.target == 'Windows'
-        run: |
-          flutter config --enable-windows-desktop
-          flutter build windows --release
-          Compress-Archive -Path "build\windows\x64\runner\Release\*" -DestinationPath LIPerfume-Windows.zip
-
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -96,8 +68,6 @@ jobs:
           path: |
             ${{ matrix.target == 'Android' && 'build/app/outputs/flutter-apk/app-release.apk' || '' }}
             ${{ matrix.target == 'iOS' && 'LIPerfume.ipa' || '' }}
-            ${{ matrix.target == 'Linux' && 'LIPerfume-Linux.tar.gz' || '' }}
-            ${{ matrix.target == 'Windows' && 'LIPerfume-Windows.zip' || '' }}
 
   release:
     name: Create Release
@@ -116,8 +86,6 @@ jobs:
           files: |
             artifacts/Android-Artifact/app-release.apk
             artifacts/iOS-Artifact/LIPerfume.ipa
-            artifacts/Linux-Artifact/LIPerfume-Linux.tar.gz
-            artifacts/Windows-Artifact/LIPerfume-Windows.zip
           name: Release ${{ github.ref_name }}
           body: |
             Автоматическая сборка LI Perfume для Lixiang.
@@ -125,7 +93,5 @@ jobs:
             ### Артефакты:
             - 📱 **Android**: `app-release.apk`
             - 🍏 **iOS**: `LIPerfume.ipa` (unsigned)
-            - 🐧 **Linux**: `LIPerfume-Linux.tar.gz`
-            - 💻 **Windows**: `LIPerfume-Windows.zip`
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
