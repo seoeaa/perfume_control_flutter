@@ -26,6 +26,10 @@ class BleService {
   BluetoothCharacteristic? _notifyCharacteristic;
   DeviceProfile? _currentProfile;
   List<BluetoothService> _services = [];
+  int _sessionId = 0;
+  int _connectionAttempts = 0;
+  int _txCounter = 0;
+  int _rxCounter = 0;
 
   DeviceProfile? get currentProfile => _currentProfile;
 
@@ -42,6 +46,10 @@ class BleService {
     _logController.add(message);
   }
 
+  String _hex(List<int> data) {
+    return data.map((e) => e.toRadixString(16).padLeft(2, '0')).join(' ');
+  }
+
   Future<void> startScan() async {
     await FlutterBluePlus.startScan(timeout: const Duration(seconds: 4));
   }
@@ -50,7 +58,13 @@ class BleService {
 
   Future<void> establishConnection(BluetoothDevice device) async {
     try {
-      log("Connecting to ${device.remoteId}...");
+      _connectionAttempts += 1;
+      _sessionId = DateTime.now().millisecondsSinceEpoch;
+      _txCounter = 0;
+      _rxCounter = 0;
+      log(
+        "Session #$_sessionId | Attempt #$_connectionAttempts | Connecting to ${device.remoteId}...",
+      );
       await (device as dynamic).connect(
         autoConnect: false,
         mtu: null,
@@ -58,32 +72,32 @@ class BleService {
       );
       _connectedDevice = device;
       _connectionController.add(true);
-      log("Connected. Discovering services...");
+      log("Session #$_sessionId | Connected. Discovering services...");
 
       if (device.platformName.isNotEmpty) {
-        log("Device Name: ${device.platformName}");
+        log("Session #$_sessionId | Device Name: ${device.platformName}");
       }
 
       // Request Mtu
       try {
         await device.requestMtu(512);
-        log("MTU requested");
+        log("Session #$_sessionId | MTU requested: 512");
       } catch (e) {
-        log("MTU request failed: $e");
+        log("Session #$_sessionId | MTU request failed: $e");
       }
 
       List<BluetoothService> services = await device.discoverServices();
       _services = services;
-      log("Services discovered: ${services.length}");
+      log("Session #$_sessionId | Services discovered: ${services.length}");
 
       // Auto-detect profile
       _currentProfile = DeviceProfileManager.findProfile(services);
       if (_currentProfile != null) {
         log(
-          "Profile detected: ${_currentProfile!.name} (protocol: ${_currentProfile!.protocol})",
+          "Session #$_sessionId | Profile detected: ${_currentProfile!.name} (protocol: ${_currentProfile!.protocol})",
         );
       } else {
-        log("No profile detected, using default search");
+        log("Session #$_sessionId | No profile detected, using default search");
       }
 
       // Known UUIDs
@@ -91,9 +105,11 @@ class BleService {
       final knownNotifyUuids = DeviceProfileManager.getAllNotifyUuids();
 
       for (var service in services) {
-        log("Service: ${service.uuid}");
+        log("Session #$_sessionId | Service: ${service.uuid}");
         for (var char in service.characteristics) {
-          log("  Char: ${char.uuid} (Props: ${char.properties})");
+          log(
+            "Session #$_sessionId |   Char: ${char.uuid} (Props: ${char.properties})",
+          );
 
           final uuid = char.uuid.toString().toLowerCase();
 
@@ -102,7 +118,7 @@ class BleService {
               (knownWriteUuids.contains(uuid) ||
                   _writeCharacteristic == null)) {
             _writeCharacteristic = char;
-            log("  -> Write Char ($uuid)");
+            log("Session #$_sessionId |   -> Write Char ($uuid)");
           }
 
           // Notify: ONLY from known notify UUIDs (ffe2, fff1, 00112333...)
@@ -113,11 +129,12 @@ class BleService {
             _notifyCharacteristic = char;
             await char.setNotifyValue(true);
             char.lastValueStream.listen((value) {
-              final hexStr = value
-                  .map((e) => e.toRadixString(16).padLeft(2, '0'))
-                  .join(' ');
+              _rxCounter += 1;
+              final hexStr = _hex(value);
               _dataController.add(value);
-              log("RX: $hexStr");
+              log(
+                "Session #$_sessionId | RX #$_rxCounter | from $uuid | len=${value.length} | $hexStr",
+              );
 
               if (_currentProfile == null && value.isNotEmpty) {
                 final detected = ProtocolHandler.detectProtocol(value);
@@ -129,15 +146,20 @@ class BleService {
                   notifyUuids: [uuid],
                   protocol: detected,
                 );
-                log("Protocol auto-detected: $detected");
+                log(
+                  "Session #$_sessionId | Protocol auto-detected: $detected",
+                );
               }
             });
-            log("  -> Notify Char ($uuid)");
+            log("Session #$_sessionId |   -> Notify Char ($uuid)");
           }
         }
       }
+      log(
+        "Session #$_sessionId | Active channels | write=${_writeCharacteristic?.uuid} notify=${_notifyCharacteristic?.uuid}",
+      );
     } catch (e) {
-      log("Connection Error: $e");
+      log("Session #$_sessionId | Connection Error: $e");
       disconnect();
     }
   }
@@ -149,16 +171,21 @@ class BleService {
     _notifyCharacteristic = null;
     _currentProfile = null;
     _connectionController.add(false);
-    log("Disconnected");
+    log("Session #$_sessionId | Disconnected");
   }
 
   Future<void> writeData(List<int> data) async {
     if (_writeCharacteristic != null) {
+      _txCounter += 1;
       final withoutResponse =
           _writeCharacteristic!.properties.writeWithoutResponse;
       await _writeCharacteristic!.write(data, withoutResponse: withoutResponse);
       log(
-        "TX: ${data.map((e) => e.toRadixString(16).padLeft(2, '0')).join(' ')}",
+        "Session #$_sessionId | TX #$_txCounter | len=${data.length} | withoutResponse=$withoutResponse | ${_hex(data)}",
+      );
+    } else {
+      log(
+        "Session #$_sessionId | TX skipped: write characteristic is null | payload=${_hex(data)}",
       );
     }
   }
@@ -169,8 +196,9 @@ class BleService {
     final withoutResponse =
         _writeCharacteristic!.properties.writeWithoutResponse;
     await _writeCharacteristic!.write(data, withoutResponse: withoutResponse);
+    _txCounter += 1;
     log(
-      "TX [${_currentProfile!.name}]: ${data.map((e) => e.toRadixString(16).padLeft(2, '0')).join(' ')}",
+      "Session #$_sessionId | TX #$_txCounter [${_currentProfile!.name}] | len=${data.length} | withoutResponse=$withoutResponse | ${_hex(data)}",
     );
   }
 
@@ -196,8 +224,9 @@ class BleService {
     final withoutResponse =
         _writeCharacteristic!.properties.writeWithoutResponse;
     await _writeCharacteristic!.write(packet, withoutResponse: withoutResponse);
+    _txCounter += 1;
     log(
-      "TX Start: ${packet.map((e) => e.toRadixString(16).padLeft(2, '0')).join(' ')}",
+      "Session #$_sessionId | TX #$_txCounter | Start command (${_currentProfile!.protocol}) | ${_hex(packet)}",
     );
   }
 
@@ -223,13 +252,15 @@ class BleService {
     final withoutResponse =
         _writeCharacteristic!.properties.writeWithoutResponse;
     await _writeCharacteristic!.write(packet, withoutResponse: withoutResponse);
+    _txCounter += 1;
     log(
-      "TX Stop: ${packet.map((e) => e.toRadixString(16).padLeft(2, '0')).join(' ')}",
+      "Session #$_sessionId | TX #$_txCounter | Stop command (${_currentProfile!.protocol}) | ${_hex(packet)}",
     );
   }
 
   void dispose() {
     _connectionController.close();
     _dataController.close();
+    _logController.close();
   }
 }

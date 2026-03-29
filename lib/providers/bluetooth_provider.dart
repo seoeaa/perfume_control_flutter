@@ -184,6 +184,9 @@ class BluetoothProvider with ChangeNotifier {
   }
 
   Future<void> connectToDevice(BluetoothDevice device) async {
+    addToLog(
+      "UI Action: connectToDevice(name=${device.platformName.isNotEmpty ? device.platformName : 'unknown'}, id=${device.remoteId})",
+    );
     _isScanning = false;
     FlutterBluePlus.stopScan();
     notifyListeners();
@@ -193,6 +196,9 @@ class BluetoothProvider with ChangeNotifier {
   void togglePower() {
     _isPowerOn = !_isPowerOn;
     final profile = _bleService.currentProfile;
+    addToLog(
+      "UI Action: togglePower -> $_isPowerOn (profile=${profile?.name}, protocol=${profile?.protocol})",
+    );
 
     if (profile != null) {
       switch (profile.protocol) {
@@ -223,6 +229,9 @@ class BluetoothProvider with ChangeNotifier {
   void toggleIon() {
     _ionEnabled = !_ionEnabled;
     final profile = _bleService.currentProfile;
+    addToLog(
+      "UI Action: toggleIon -> $_ionEnabled (profile=${profile?.name}, protocol=${profile?.protocol})",
+    );
 
     if (profile != null &&
         (profile.protocol == ProtocolType.a ||
@@ -235,6 +244,9 @@ class BluetoothProvider with ChangeNotifier {
   void toggleFragrance() {
     _fragranceEnabled = !_fragranceEnabled;
     final profile = _bleService.currentProfile;
+    addToLog(
+      "UI Action: toggleFragrance -> $_fragranceEnabled (profile=${profile?.name}, protocol=${profile?.protocol})",
+    );
 
     if (profile != null &&
         (profile.protocol == ProtocolType.a ||
@@ -249,6 +261,9 @@ class BluetoothProvider with ChangeNotifier {
   void setChannelIntensity(int channel, int level) {
     _intensities[channel] = level;
     final profile = _bleService.currentProfile;
+    addToLog(
+      "UI Action: setChannelIntensity(channel=$channel, level=$level, profile=${profile?.name}, protocol=${profile?.protocol})",
+    );
 
     if (profile != null) {
       switch (profile.protocol) {
@@ -269,6 +284,7 @@ class BluetoothProvider with ChangeNotifier {
   }
 
   void syncTime() {
+    addToLog("UI Action: syncTime()");
     _bleService.writeData(ProtocolHandler.syncTimeA());
   }
 
