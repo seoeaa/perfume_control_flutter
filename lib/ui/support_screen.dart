@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'widgets/glass_card.dart';
+import '../services/update_service.dart';
 
 class SupportScreen extends StatelessWidget {
   const SupportScreen({super.key});
@@ -14,6 +15,41 @@ class SupportScreen extends StatelessWidget {
       }
     } catch (e) {
       debugPrint('Error launching URL: $e');
+    }
+  }
+
+  Future<void> _checkForUpdate(BuildContext context) async {
+    final info = await UpdateService.checkForUpdate();
+    if (info.hasUpdate && context.mounted) {
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Обновление'),
+          content: Text(
+            'Доступна версия ${info.latestVersion}\n\n${info.releaseNotes.isNotEmpty ? info.releaseNotes : "Нажмите скачать для обновления"}',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Позже'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                UpdateService.openDownload(info.downloadUrl);
+              },
+              child: const Text('Скачать'),
+            ),
+          ],
+        ),
+      );
+    } else if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('У вас последняя версия'),
+          duration: Duration(seconds: 2),
+        ),
+      );
     }
   }
 
@@ -102,6 +138,29 @@ class SupportScreen extends StatelessWidget {
                           0xFF0088CC,
                         ), // Telegram Blue
                         foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 16,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () => _checkForUpdate(context),
+                      icon: const Icon(Icons.system_update, size: 24),
+                      label: Text(
+                        'Проверить обновления',
+                        style: GoogleFonts.outfit(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                        side: const BorderSide(color: Colors.white30),
                         padding: const EdgeInsets.symmetric(
                           horizontal: 24,
                           vertical: 16,

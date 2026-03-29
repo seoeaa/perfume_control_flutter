@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'providers/bluetooth_provider.dart';
 import 'ui/dashboard_screen.dart';
+import 'services/update_service.dart';
 
 void main() {
   runApp(
@@ -31,6 +32,45 @@ class PerfumeControlApp extends StatelessWidget {
         ),
       ),
       home: const DashboardScreen(),
+      builder: (context, child) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _checkForUpdate(context);
+        });
+        return child!;
+      },
+    );
+  }
+
+  void _checkForUpdate(BuildContext context) async {
+    final info = await UpdateService.checkForUpdate();
+    if (info.hasUpdate && context.mounted) {
+      showUpdateDialog(context, info);
+    }
+  }
+
+  void showUpdateDialog(BuildContext context, UpdateInfo info) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Обновление'),
+        content: Text(
+          'Доступна версия ${info.latestVersion}\n\n${info.releaseNotes.isNotEmpty ? info.releaseNotes : "Нажмите скачать для обновления"}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Позже'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              UpdateService.openDownload(info.downloadUrl);
+            },
+            child: const Text('Скачать'),
+          ),
+        ],
+      ),
     );
   }
 }
