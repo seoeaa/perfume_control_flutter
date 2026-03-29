@@ -21,6 +21,7 @@ class BluetoothProvider with ChangeNotifier {
 
   // Debug Logs
   List<String> _logs = [];
+  DeviceStatus? _lastParsedStatus;
 
   bool get isConnected => _isConnected;
   bool get isScanning => _isScanning;
@@ -48,6 +49,75 @@ class BluetoothProvider with ChangeNotifier {
     notifyListeners();
   }
 
+
+
+  String _hex(List<int> bytes) =>
+      bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+
+  void _logStatusDiff(DeviceStatus current) {
+    final previous = _lastParsedStatus;
+    if (previous == null) {
+      _lastParsedStatus = current;
+      return;
+    }
+
+    final currentMap = current.toMap();
+    final previousMap = previous.toMap();
+    final changedFields = <String, Map<String, dynamic>>{};
+
+    currentMap.forEach((key, value) {
+      if (previousMap[key] != value) {
+        changedFields[key] = {'was': previousMap[key], 'now': value};
+      }
+    });
+
+    final changedBytes = <int>[];
+    if (current.rawBytes.length == previous.rawBytes.length) {
+      for (int i = 0; i < current.rawBytes.length; i++) {
+        if (current.rawBytes[i] != previous.rawBytes[i]) {
+          changedBytes.add(i);
+        }
+      }
+    }
+
+    if (changedFields.isNotEmpty || changedBytes.isNotEmpty) {
+      addToLog('━━━ STATUS DIFF ━━━');
+
+      if (changedFields.isNotEmpty) {
+        changedFields.forEach((field, values) {
+          addToLog('  field [$field]: ${values['was']} -> ${values['now']}');
+        });
+      } else {
+        addToLog('  field diff: none');
+      }
+
+      if (changedBytes.isNotEmpty) {
+        for (final i in changedBytes) {
+          final prevHex = previous.rawBytes[i].toRadixString(16).padLeft(2, '0');
+          final currHex = current.rawBytes[i].toRadixString(16).padLeft(2, '0');
+          addToLog('  byte  [$i]: 0x$prevHex -> 0x$currHex');
+        }
+      } else if (current.rawBytes.length != previous.rawBytes.length) {
+        addToLog(
+          '  byte diff: skipped (length ${previous.rawBytes.length} -> ${current.rawBytes.length})',
+        );
+      } else {
+        addToLog('  byte diff: none');
+      }
+
+      if (changedBytes.length > changedFields.length && changedBytes.isNotEmpty) {
+        addToLog(
+          '  ⚠ unknown byte changes: $changedBytes (possible undiscovered fields)',
+        );
+        addToLog('  WAS: ${_hex(previous.rawBytes)}');
+        addToLog('  NOW: ${_hex(current.rawBytes)}');
+      }
+
+      addToLog('━━━━━━━━━━━━━━━━━━━');
+    }
+
+    _lastParsedStatus = current;
+  }
   BluetoothProvider() {
     _bleService.connectionStatus.listen((status) {
       _isConnected = status;
@@ -81,6 +151,8 @@ class BluetoothProvider with ChangeNotifier {
           // Fallback: try protocol A
           Future.delayed(const Duration(seconds: 1), () => syncTime());
         }
+      } else {
+        _lastParsedStatus = null;
       }
       notifyListeners();
     });
@@ -103,6 +175,7 @@ class BluetoothProvider with ChangeNotifier {
           final status = ProtocolHandler.parseStatusB(data);
           if (status != null) {
             addToLog("Parsed: $status");
+            _logStatusDiff(status);
             _fluidLevels[0] = status.levelA;
             _fluidLevels[1] = status.levelB;
             _fluidLevels[2] = status.levelC;

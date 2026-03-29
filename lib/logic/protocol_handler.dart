@@ -121,6 +121,7 @@ class ProtocolHandler {
         levelC: levelC,
         flags: flags,
         powerOn: powerOn,
+        rawBytes: List<int>.from(data),
       );
     } catch (e) {
       return null;
@@ -229,6 +230,7 @@ class DeviceStatus {
   final int levelC;
   final int flags;
   final bool powerOn;
+  final List<int> rawBytes;
 
   DeviceStatus({
     required this.levelA,
@@ -236,7 +238,18 @@ class DeviceStatus {
     required this.levelC,
     required this.flags,
     required this.powerOn,
+    required this.rawBytes,
   });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'levelA': levelA,
+      'levelB': levelB,
+      'levelC': levelC,
+      'flags': flags,
+      'powerOn': powerOn,
+    };
+  }
 
   @override
   String toString() {

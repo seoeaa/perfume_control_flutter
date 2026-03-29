@@ -21,9 +21,10 @@ class DeviceProfileManager {
     DeviceProfile(
       name: 'classic_ffe',
       // Some classic FFE boards expose two writable chars (ffe1 and ffe3).
-      // Prefer ffe3 when available because commands are accepted there on
-      // devices that only stream status on ffe2.
-      writeUuids: ['ffe3', 'ffe1'],
+      // Prefer ffe1 first: on a subset of Fresh Air devices ffe3 accepts
+      // writes at BLE level, but the MCU ignores control commands there.
+      // Keep ffe3 as fallback for older firmware variants.
+      writeUuids: ['ffe1', 'ffe3'],
       notifyUuids: ['ffe2'],
       protocol: ProtocolType.a,
     ),
@@ -50,17 +51,31 @@ class DeviceProfileManager {
     }
 
     DeviceProfile? bestProfile;
-    int bestScore = 0;
+    int bestScore = -1;
+    int bestSpecificity = -1;
 
     for (final profile in profiles) {
-      final writeMatches = profile.writeUuids.where(discovered.contains).length;
-      final notifyMatches = profile.notifyUuids.where(discovered.contains).length;
+      final matchedWrite = profile.writeUuids.where(discovered.contains).toList();
+      final matchedNotify = profile.notifyUuids.where(discovered.contains).toList();
+
+      final writeMatches = matchedWrite.length;
+      final notifyMatches = matchedNotify.length;
 
       // Prioritize write match, then notify match.
       final score = (writeMatches * 10) + notifyMatches;
 
-      if (score > bestScore && writeMatches > 0) {
+      // 128-bit UUID profiles are typically more specific than legacy 16-bit FFF/FFE aliases.
+      final specificity = [
+        ...matchedWrite,
+        ...matchedNotify,
+      ].where((uuid) => uuid.length > 8).length;
+
+      final isBetter = score > bestScore ||
+          (score == bestScore && specificity > bestSpecificity);
+
+      if (isBetter && writeMatches > 0) {
         bestScore = score;
+        bestSpecificity = specificity;
         bestProfile = profile;
       }
     }

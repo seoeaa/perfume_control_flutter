@@ -23,6 +23,7 @@ class BleService {
 
   BluetoothDevice? _connectedDevice;
   BluetoothCharacteristic? _writeCharacteristic;
+  BluetoothCharacteristic? _mirrorWriteCharacteristic;
   BluetoothCharacteristic? _notifyCharacteristic;
   DeviceProfile? _currentProfile;
   List<BluetoothService> _services = [];
@@ -66,6 +67,7 @@ class BleService {
       _txCounter = 0;
       _rxCounter = 0;
       _writeCharacteristic = null;
+      _mirrorWriteCharacteristic = null;
       _notifyCharacteristic = null;
       _lastWriteAt = null;
       await _deviceStateSub?.cancel();
@@ -153,6 +155,21 @@ class BleService {
             break;
           }
         }
+        if (_currentProfile!.name == 'classic_ffe' && _writeCharacteristic != null) {
+          for (final writeUuid in _currentProfile!.writeUuids) {
+            final candidate = charsByUuid[writeUuid];
+            if (candidate != null &&
+                candidate.uuid != _writeCharacteristic!.uuid &&
+                (candidate.properties.write ||
+                    candidate.properties.writeWithoutResponse)) {
+              _mirrorWriteCharacteristic = candidate;
+              log(
+                "Session #$_sessionId |   -> Mirror Write Char ($writeUuid)",
+              );
+              break;
+            }
+          }
+        }
         for (final notifyUuid in _currentProfile!.notifyUuids) {
           final candidate = charsByUuid[notifyUuid];
           if (candidate != null &&
@@ -173,7 +190,7 @@ class BleService {
       }
 
       log(
-        "Session #$_sessionId | Active channels | write=${_writeCharacteristic?.uuid} notify=${_notifyCharacteristic?.uuid}",
+        "Session #$_sessionId | Active channels | write=${_writeCharacteristic?.uuid} mirror=${_mirrorWriteCharacteristic?.uuid} notify=${_notifyCharacteristic?.uuid}",
       );
     } catch (e) {
       log("Session #$_sessionId | Connection Error: $e");
@@ -192,6 +209,7 @@ class BleService {
     final wasConnected = _connectedDevice != null || _isChannelActive();
     _connectedDevice = null;
     _writeCharacteristic = null;
+    _mirrorWriteCharacteristic = null;
     _notifyCharacteristic = null;
     _currentProfile = null;
     _lastWriteAt = null;
@@ -251,18 +269,39 @@ class BleService {
     _lastWriteAt = DateTime.now();
   }
 
+  Future<void> _writeToCharacteristic(
+    BluetoothCharacteristic characteristic,
+    List<int> data, {
+    required String label,
+  }) async {
+    await _writeWithRateLimit(characteristic, data);
+    final withoutResponse = characteristic.properties.writeWithoutResponse;
+    log(
+      "Session #$_sessionId | $label | len=${data.length} | withoutResponse=$withoutResponse | ${_hex(data)}",
+    );
+  }
+
   Future<void> writeData(List<int> data) async {
-    if (_writeCharacteristic != null) {
-      _txCounter += 1;
-      await _writeWithRateLimit(_writeCharacteristic!, data);
-      final withoutResponse =
-          _writeCharacteristic!.properties.writeWithoutResponse;
-      log(
-        "Session #$_sessionId | TX #$_txCounter | len=${data.length} | withoutResponse=$withoutResponse | ${_hex(data)}",
-      );
-    } else {
+    if (_writeCharacteristic == null) {
       log(
         "Session #$_sessionId | TX skipped: write characteristic is null | payload=${_hex(data)}",
+      );
+      return;
+    }
+
+    _txCounter += 1;
+    final txId = _txCounter;
+    await _writeToCharacteristic(
+      _writeCharacteristic!,
+      data,
+      label: "TX #$txId",
+    );
+
+    if (_mirrorWriteCharacteristic != null) {
+      await _writeToCharacteristic(
+        _mirrorWriteCharacteristic!,
+        data,
+        label: "TX #$txId mirror",
       );
     }
   }
@@ -270,13 +309,21 @@ class BleService {
   Future<void> writeDataByProfile(List<int> data) async {
     if (_writeCharacteristic == null || _currentProfile == null) return;
 
-    await _writeWithRateLimit(_writeCharacteristic!, data);
-    final withoutResponse =
-        _writeCharacteristic!.properties.writeWithoutResponse;
     _txCounter += 1;
-    log(
-      "Session #$_sessionId | TX #$_txCounter [${_currentProfile!.name}] | len=${data.length} | withoutResponse=$withoutResponse | ${_hex(data)}",
+    final txId = _txCounter;
+    await _writeToCharacteristic(
+      _writeCharacteristic!,
+      data,
+      label: "TX #$txId [${_currentProfile!.name}]",
     );
+
+    if (_mirrorWriteCharacteristic != null) {
+      await _writeToCharacteristic(
+        _mirrorWriteCharacteristic!,
+        data,
+        label: "TX #$txId mirror [${_currentProfile!.name}]",
+      );
+    }
   }
 
   Future<void> sendStartCommand() async {
@@ -298,13 +345,20 @@ class BleService {
         break;
     }
 
-    final withoutResponse =
-        _writeCharacteristic!.properties.writeWithoutResponse;
-    await _writeWithRateLimit(_writeCharacteristic!, packet);
     _txCounter += 1;
-    log(
-      "Session #$_sessionId | TX #$_txCounter | Start command (${_currentProfile!.protocol}) | ${_hex(packet)}",
+    final txId = _txCounter;
+    await _writeToCharacteristic(
+      _writeCharacteristic!,
+      packet,
+      label: "TX #$txId | Start command (${_currentProfile!.protocol})",
     );
+    if (_mirrorWriteCharacteristic != null) {
+      await _writeToCharacteristic(
+        _mirrorWriteCharacteristic!,
+        packet,
+        label: "TX #$txId mirror | Start command (${_currentProfile!.protocol})",
+      );
+    }
   }
 
   Future<void> sendStopCommand() async {
@@ -326,13 +380,20 @@ class BleService {
         break;
     }
 
-    final withoutResponse =
-        _writeCharacteristic!.properties.writeWithoutResponse;
-    await _writeWithRateLimit(_writeCharacteristic!, packet);
     _txCounter += 1;
-    log(
-      "Session #$_sessionId | TX #$_txCounter | Stop command (${_currentProfile!.protocol}) | ${_hex(packet)}",
+    final txId = _txCounter;
+    await _writeToCharacteristic(
+      _writeCharacteristic!,
+      packet,
+      label: "TX #$txId | Stop command (${_currentProfile!.protocol})",
     );
+    if (_mirrorWriteCharacteristic != null) {
+      await _writeToCharacteristic(
+        _mirrorWriteCharacteristic!,
+        packet,
+        label: "TX #$txId mirror | Stop command (${_currentProfile!.protocol})",
+      );
+    }
   }
 
   void dispose() {
