@@ -819,6 +819,38 @@ class _ResearchControlsState extends State<_ResearchControls> {
         ),
         const SizedBox(height: 16),
 
+        // Auto-Probe Trigger
+        GlassCard(
+          borderRadius: BorderRadius.circular(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _header(Icons.search, 'Авто-сканирование платы'),
+              const SizedBox(height: 12),
+              Text(
+                'Комплексная проверка AT-команд и перебор команд протокола C для поиска отклика.',
+                style: GoogleFonts.outfit(color: Colors.white60, fontSize: 12),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => widget.provider.runAutoProbe(),
+                  icon: const Icon(Icons.rocket_launch),
+                  label: const Text('Запустить авто-сканирование'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orangeAccent.withValues(alpha: 0.15),
+                    foregroundColor: Colors.orangeAccent,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
         // AT Console
         GlassCard(
           borderRadius: BorderRadius.circular(24),

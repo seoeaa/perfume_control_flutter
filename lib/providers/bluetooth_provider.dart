@@ -171,7 +171,7 @@ class BluetoothProvider with ChangeNotifier {
           // Send appropriate protocol-specific commands
           Future.delayed(const Duration(seconds: 1), () {
             if (isResearchMode) {
-              _runAutoProbe();
+              syncSettingsToDevice();
               return;
             }
 
@@ -192,11 +192,7 @@ class BluetoothProvider with ChangeNotifier {
         } else {
           // Fallback: try protocol A
         Future.delayed(const Duration(seconds: 1), () {
-          if (isResearchMode) {
-            _runAutoProbe();
-          } else {
-            syncSettingsToDevice();
-          }
+          syncSettingsToDevice();
         });
         }
       } else {
@@ -585,7 +581,7 @@ class BluetoothProvider with ChangeNotifier {
     }
   }
 
-  Future<void> _runAutoProbe() async {
+  Future<void> runAutoProbe() async {
     addToLog("🚀 STARTING AUTO-PROBE for Research Board...");
     
     final atCommands = ['AT', 'ATE1', 'AT+GMR', 'AT+NAME?', 'AT+VERSION', 'AT+ADDR?', 'AT+BAUD?', 'AT+MAC?'];
