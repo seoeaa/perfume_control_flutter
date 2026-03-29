@@ -6,6 +6,7 @@ import '../providers/bluetooth_provider.dart';
 import 'widgets/glass_card.dart';
 import 'support_screen.dart';
 import '../ble/device_profile.dart';
+import '../logic/protocol_handler.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -47,10 +48,10 @@ class DashboardScreen extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'LI Perfume',
+                            bluetoothProvider.deviceDisplayName,
                             style: GoogleFonts.outfit(
                               color: Colors.white,
-                              fontSize: 32,
+                              fontSize: 24,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
@@ -299,6 +300,22 @@ class DashboardScreen extends StatelessWidget {
                       ),
                     ],
                   ),
+
+                  if (bluetoothProvider.isResearchMode) ...[
+                    const SizedBox(height: 32),
+                    Text(
+                      'RESEARCH MODE: 64507067',
+                      style: GoogleFonts.outfit(
+                        color: Colors.orangeAccent,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _ResearchControls(provider: bluetoothProvider),
+                  ],
+
                   const SizedBox(height: 40),
                 ],
               ),
@@ -661,6 +678,333 @@ class DashboardScreen extends StatelessWidget {
           },
         );
       },
+    );
+  }
+}
+
+class _ResearchControls extends StatefulWidget {
+  final BluetoothProvider provider;
+  const _ResearchControls({required this.provider});
+
+  @override
+  State<_ResearchControls> createState() => _ResearchControlsState();
+}
+
+class _ResearchControlsState extends State<_ResearchControls> {
+  final TextEditingController _atController = TextEditingController();
+  final TextEditingController _protoCDataController = TextEditingController();
+  int _protoCCmd = 0x01;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Protocol C Builder
+        GlassCard(
+          borderRadius: BorderRadius.circular(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _header(Icons.construction, 'Конструктор Protocol C (AA 55)'),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: _inputField(
+                      label: 'Cmd (HEX)',
+                      hint: '01',
+                      onChanged: (v) => setState(() => _protoCCmd = int.tryParse(v, radix: 16) ?? 0x01),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 5,
+                    child: TextField(
+                      controller: _protoCDataController,
+                      style: GoogleFonts.firaCode(color: Colors.white, fontSize: 13),
+                      decoration: InputDecoration(
+                        labelText: 'Data Bytes (HEX)',
+                        hintText: '01 01',
+                        labelStyle: const TextStyle(color: Colors.white38, fontSize: 12),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _buildChecksumPreview(),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    final data = _protoCDataController.text
+                        .split(' ')
+                        .where((s) => s.isNotEmpty)
+                        .map((s) => int.parse(s, radix: 16))
+                        .toList();
+                    widget.provider.sendRawHex(
+                      ProtocolHandler.buildProtocolC(_protoCCmd, data)
+                          .map((b) => b.toRadixString(16).padLeft(2, '0'))
+                          .join(' '),
+                    );
+                  },
+                  icon: const Icon(Icons.send),
+                  label: const Text('Собрать и Отправить'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent.withOpacity(0.3)),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // AT Console
+        GlassCard(
+          borderRadius: BorderRadius.circular(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _header(Icons.terminal, 'AT Консоль'),
+              const SizedBox(height: 16),
+              TextField(
+                controller: _atController,
+                style: GoogleFonts.firaCode(color: Colors.amberAccent),
+                decoration: InputDecoration(
+                  labelText: 'Команда (напр. AT+NAME?)',
+                  labelStyle: const TextStyle(color: Colors.white38),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.send, color: Colors.amberAccent),
+                    onPressed: () {
+                      widget.provider.sendATCommand(_atController.text);
+                      _atController.clear();
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _QuickBtn(label: 'AT', onTap: () => widget.provider.sendATCommand('AT')),
+                    _QuickBtn(label: 'NAME?', onTap: () => widget.provider.sendATCommand('AT+NAME?')),
+                    _QuickBtn(label: 'VERSION', onTap: () => widget.provider.sendATCommand('AT+VERSION')),
+                    _QuickBtn(label: 'ADDR?', onTap: () => widget.provider.sendATCommand('AT+ADDR?')),
+                    _QuickBtn(label: 'BAUD?', onTap: () => widget.provider.sendATCommand('AT+BAUD?')),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Quick Protocol Tests
+        GlassCard(
+          borderRadius: BorderRadius.circular(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _header(Icons.flash_on, 'Быстрые тесты протоколов'),
+              const SizedBox(height: 16),
+              SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _TestSet(
+                      label: 'Proto A (7E)',
+                      onTest: (cmd) => widget.provider.testProtocolCommand(ProtocolType.a, cmd),
+                    ),
+                    const SizedBox(width: 12),
+                    _TestSet(
+                      label: 'Proto B (A5)',
+                      onTest: (cmd) => widget.provider.testProtocolCommand(ProtocolType.b, cmd),
+                    ),
+                    const SizedBox(width: 12),
+                    _TestSet(
+                      label: 'Proto C (AA)',
+                      onTest: (cmd) => widget.provider.testProtocolCommand(ProtocolType.c, cmd),
+                      isResearch: true,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+
+        // Live Log Viewer
+        GlassCard(
+          borderRadius: BorderRadius.circular(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _header(Icons.history, 'Лог обмена данными (Live)'),
+              const SizedBox(height: 12),
+              Container(
+                height: 200,
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.black45,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.white10),
+                ),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  reverse: true, // Show latest at bottom but scrollable
+                  itemCount: widget.provider.logs.length,
+                  itemBuilder: (context, index) {
+                    final log = widget.provider.logs[widget.provider.logs.length - 1 - index];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Text(
+                        log,
+                        style: GoogleFonts.firaCode(
+                          color: log.contains('RX') ? Colors.greenAccent : 
+                                 log.contains('TX') ? Colors.blueAccent : 
+                                 log.contains('ERROR') ? Colors.redAccent : Colors.white70,
+                          fontSize: 10,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                    TextButton.icon(
+                      onPressed: () {
+                        final allLogs = widget.provider.logs.join('\n');
+                        Clipboard.setData(ClipboardData(text: allLogs));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Логи скопированы в буфер обмена')),
+                        );
+                      },
+                      icon: const Icon(Icons.copy, size: 16),
+                      label: const Text('Копировать', style: TextStyle(fontSize: 12)),
+                      style: TextButton.styleFrom(foregroundColor: Colors.blueAccent),
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton.icon(
+                      onPressed: () => widget.provider.clearLogs(),
+                      icon: const Icon(Icons.delete_sweep, size: 16),
+                      label: const Text('Очистить', style: TextStyle(fontSize: 12)),
+                      style: TextButton.styleFrom(foregroundColor: Colors.white38),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _header(IconData icon, String title) {
+    return Row(
+      children: [
+        Icon(icon, color: Colors.orangeAccent, size: 20),
+        const SizedBox(width: 8),
+        Text(title, style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.w600)),
+      ],
+    );
+  }
+
+  Widget _inputField({required String label, required String hint, required ValueChanged<String> onChanged}) {
+    return TextField(
+      onChanged: onChanged,
+      style: GoogleFonts.firaCode(color: Colors.white, fontSize: 13),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        labelStyle: const TextStyle(color: Colors.white38, fontSize: 12),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+    );
+  }
+
+  Widget _buildChecksumPreview() {
+    try {
+      final data = _protoCDataController.text
+          .split(' ')
+          .where((s) => s.isNotEmpty)
+          .map((s) => int.parse(s, radix: 16))
+          .toList();
+      final packet = ProtocolHandler.buildProtocolC(_protoCCmd, data);
+      final hex = packet.map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ');
+      return Text(
+        'Итог: $hex',
+        style: GoogleFonts.firaCode(color: Colors.greenAccent, fontSize: 11),
+      );
+    } catch (_) {
+      return const Text('Ошибка формата', style: TextStyle(color: Colors.redAccent, fontSize: 11));
+    }
+  }
+}
+
+class _TestSet extends StatelessWidget {
+  final String label;
+  final Function(String) onTest;
+  final bool isResearch;
+
+  const _TestSet({required this.label, required this.onTest, this.isResearch = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        children: [
+          Text(label, style: GoogleFonts.outfit(color: isResearch ? Colors.orangeAccent : Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: [
+              _QuickBtn(label: 'ON', onTap: () => onTest('Power ON')),
+              _QuickBtn(label: 'OFF', onTap: () => onTest('Power OFF')),
+              if (isResearch) ...[
+                _QuickBtn(label: 'P02', onTap: () => onTest('Probe 02')),
+                _QuickBtn(label: 'P04', onTap: () => onTest('Probe 04')),
+              ],
+              _QuickBtn(label: 'Sync', onTap: () => onTest('Sync Time')),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickBtn extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+  const _QuickBtn({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return ElevatedButton(
+      onPressed: onTap,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.blueAccent.withOpacity(0.2),
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
+        minimumSize: const Size(40, 30),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      child: Text(label, style: const TextStyle(fontSize: 10)),
     );
   }
 }

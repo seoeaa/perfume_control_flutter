@@ -37,6 +37,8 @@ class BleService {
   StreamSubscription<BluetoothConnectionState>? _deviceStateSub;
   List<int>? _lastRxValue;
 
+  BluetoothDevice? get connectedDevice => _connectedDevice;
+  BluetoothDevice? get currentDevice => _connectedDevice;
   DeviceProfile? get currentProfile => _currentProfile;
 
   final _connectionController = StreamController<bool>.broadcast();
@@ -110,7 +112,7 @@ class BleService {
       log("Session #$_sessionId | Services discovered: ${services.length}");
 
       // Auto-detect profile
-      _currentProfile = DeviceProfileManager.findProfile(_services);
+      _currentProfile = DeviceProfileManager.findProfile(device, _services);
       if (_currentProfile != null) {
         log("Session #$_sessionId | Profile matched: ${_currentProfile!.name} [Protocol ${_currentProfile!.protocol}]");
       } else {

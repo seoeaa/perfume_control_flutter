@@ -12,6 +12,14 @@ class ProtocolHandler {
   static const int footerB = 0xAA;
   static const int cmdIdB = 0x20;
 
+  // Protocol C Constants
+  static const int headerC1 = 0xAA;
+  static const int headerC2 = 0x55;
+
+  // ==========================================
+  // Packet Builders
+  // ==========================================
+
   /// Builds a packet for Protocol A
   /// Format: [0x7E] [Cmd] [Data...] [0xFF] [0xFF] [0x00] [0xEF]
   static Uint8List buildProtocolA({required int command, List<int>? data}) {
@@ -53,7 +61,45 @@ class ProtocolHandler {
     return Uint8List.fromList(packet);
   }
 
-  // Predefined Commands
+  /// Builds a packet for Protocol C
+  /// Format: [0xAA] [0x55] [Cmd] [Data...] [Checksum]
+  /// Note: Log discovery: Checksum = (Sum of Cmd + Data) - 1
+  static Uint8List buildProtocolC(int command, List<int> data) {
+    List<int> payload = [command, ...data];
+    int sum = payload.fold(0, (s, b) => s + b);
+    int checksum = (sum - 1) & 0xFF;
+    
+    List<int> packet = [headerC1, headerC2, ...payload, checksum];
+    return Uint8List.fromList(packet);
+  }
+
+  /// Builds an AT command packet (ASCII string + \r\n)
+  static Uint8List buildATCommand(String cmd) {
+    if (!cmd.toUpperCase().startsWith('AT')) {
+      cmd = 'AT+$cmd';
+    }
+    return Uint8List.fromList("${cmd.trim()}\r\n".codeUnits);
+  }
+
+  /// Universal packet builder
+  static Uint8List buildPacket(
+    ProtocolType protocol,
+    int command,
+    List<int> data,
+  ) {
+    switch (protocol) {
+      case ProtocolType.a:
+        return buildProtocolA(command: command, data: data);
+      case ProtocolType.b:
+        return buildProtocolB(data: data);
+      case ProtocolType.c:
+        return buildProtocolC(command, data);
+    }
+  }
+
+  // ==========================================
+  // Predefined Commands - PROTOCOL A (Legacy/Fresh Air)
+  // ==========================================
 
   /// Sync Time for Protocol A
   static Uint8List syncTimeA() {
@@ -92,6 +138,10 @@ class ProtocolHandler {
     return buildProtocolA(command: 0x06, data: [0x02, 0x04, index + 1]);
   }
 
+  // ==========================================
+  // Predefined Commands - PROTOCOL B (Fresh Air New)
+  // ==========================================
+
   /// Status Request for Protocol B
   static Uint8List requestStatusB() {
     return buildProtocolB(data: [0x06, 0x01]);
@@ -105,6 +155,105 @@ class ProtocolHandler {
   /// Set Power for Protocol B (ON=1, OFF=0)
   static Uint8List setPowerB(bool on) {
     return buildProtocolB(data: [0x02, on ? 1 : 0]);
+  }
+
+  /// Ion Switch (Protocol B)
+  static Uint8List setIonSwitchB(bool on) {
+    return buildProtocolB(data: [0x05, on ? 1 : 0]);
+  }
+
+  /// Sync Time for Protocol B
+  static Uint8List syncTimeB() {
+    final now = DateTime.now();
+    return buildProtocolB(data: [
+      0x07,
+      now.year % 100,
+      now.month,
+      now.day,
+      now.hour,
+      now.minute,
+      now.second,
+    ]);
+  }
+
+  // ==========================================
+  // Predefined Commands - PROTOCOL C (Research Board)
+  // ==========================================
+
+  static Uint8List startProtocolC() {
+    return buildProtocolC(0x01, [0x01]);
+  }
+
+  static Uint8List stopProtocolC() {
+    return buildProtocolC(0x01, [0x00]);
+  }
+
+  static Uint8List setIntensityC(int channel, int level) {
+    return buildProtocolC(0x03, [channel, level]);
+  }
+
+  /// Ion Switch (Protocol C) - Guessing command 0x05
+  static Uint8List setIonSwitchC(bool on) {
+    return buildProtocolC(0x05, [on ? 1 : 0]);
+  }
+
+  /// Fragrance Switch (Protocol C) - Guessing command 0x02
+  static Uint8List setFragranceSwitchC(bool on) {
+    return buildProtocolC(0x02, [on ? 1 : 0]);
+  }
+
+  static Uint8List syncTimeC() {
+    final now = DateTime.now();
+    return buildProtocolC(0x07, [
+      now.year % 100,
+      now.month,
+      now.day,
+      now.hour,
+      now.minute,
+      now.second,
+    ]);
+  }
+
+  // ==========================================
+  // Utility & Parsing Methods
+  // ==========================================
+
+  static Uint8List syncTime(ProtocolType type) {
+    switch (type) {
+      case ProtocolType.a:
+        return syncTimeA();
+      case ProtocolType.b:
+        return syncTimeB();
+      case ProtocolType.c:
+        return syncTimeC();
+    }
+  }
+
+  /// Detects protocol from notify response
+  /// Returns null if header is not recognized to avoid false positives (e.g. AT commands)
+  static ProtocolType? detectProtocol(List<int> response) {
+    if (response.isEmpty) return null;
+
+    // Check for Protocol B (0xA5 header or 0x55/AA sequence)
+    if (response.first == 0xA5 || 
+        (response.length > 1 && response[0] == 0x05 && response[1] == 0x05)) {
+      return ProtocolType.b;
+    }
+
+    if (response.first == 0x7E) {
+      return ProtocolType.a;
+    }
+
+    if (response.first == headerC1) { // 0xAA
+      return ProtocolType.c;
+    }
+
+    // Ignore AT responses like 'ATE0' (0x41)
+    if (response[0] == 0x41 || response[0] == 0x4F) { // 'A' or 'O' (OK)
+      return null;
+    }
+
+    return null;
   }
 
   static DeviceStatus? parseStatusB(List<int> data) {
@@ -172,111 +321,6 @@ class ProtocolHandler {
     } catch (e) {
       return null;
     }
-  }
-
-  // ========== Protocol C: AA 55 ... ==========
-  static const int headerC1 = 0xAA;
-  static const int headerC2 = 0x55;
-
-  /// Builds a packet for Protocol C
-  /// Format: [0xAA] [0x55] [Cmd] [Data...] [Checksum]
-  static Uint8List buildProtocolC(int command, List<int> data) {
-    List<int> packet = [headerC1, headerC2, command, ...data];
-    int checksum = packet.fold(0, (sum, item) => (sum + item) & 0xFF);
-    packet.add(checksum);
-    return Uint8List.fromList(packet);
-  }
-
-  /// Universal packet builder
-  static Uint8List buildPacket(
-    ProtocolType protocol,
-    int command,
-    List<int> data,
-  ) {
-    switch (protocol) {
-      case ProtocolType.a:
-        return buildProtocolA(command: command, data: data);
-      case ProtocolType.b:
-        return buildProtocolB(data: data);
-      case ProtocolType.c:
-        return buildProtocolC(command, data);
-    }
-  }
-
-  /// Detects protocol from notify response
-  /// Returns null if header is not recognized to avoid false positives (e.g. AT commands)
-  static ProtocolType? detectProtocol(List<int> response) {
-    if (response.isEmpty) return null;
-
-    // Check for Protocol B (0xA5 header or 0x55/AA sequence)
-    if (response.first == 0xA5 || 
-        (response.length > 1 && response[0] == 0x05 && response[1] == 0x05)) {
-      return ProtocolType.b;
-    }
-
-    if (response.first == 0x7E) {
-      return ProtocolType.a;
-    }
-
-    if (response.first == headerC1) { // 0xAA
-      return ProtocolType.c;
-    }
-
-    // Ignore AT responses like 'ATE0' (0x41)
-    if (response[0] == 0x41 || response[0] == 0x4F) { // 'A' or 'O' (OK)
-      return null;
-    }
-
-    return null;
-  }
-
-  // ========== Protocol C Commands ==========
-  static Uint8List startProtocolC() {
-    return buildProtocolC(0x01, [0x01]);
-  }
-
-  static Uint8List stopProtocolC() {
-    return buildProtocolC(0x01, [0x00]);
-  }
-
-  static Uint8List setIntensityC(int channel, int level) {
-    return buildProtocolC(0x03, [channel, level]);
-  }
-
-  static Uint8List syncTimeC() {
-    final now = DateTime.now();
-    return buildProtocolC(0x07, [
-      now.year % 100,
-      now.month,
-      now.day,
-      now.hour,
-      now.minute,
-      now.second,
-    ]);
-  }
-
-  static Uint8List syncTime(ProtocolType type) {
-    switch (type) {
-      case ProtocolType.a:
-        return syncTimeA();
-      case ProtocolType.b:
-        return syncTimeB();
-      case ProtocolType.c:
-        return syncTimeC();
-    }
-  }
-
-  static Uint8List syncTimeB() {
-    final now = DateTime.now();
-    return buildProtocolB(data: [
-      0x07,
-      now.year % 100,
-      now.month,
-      now.day,
-      now.hour,
-      now.minute,
-      now.second,
-    ]);
   }
 }
 

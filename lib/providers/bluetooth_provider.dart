@@ -36,6 +36,20 @@ class BluetoothProvider with ChangeNotifier {
   List<String> get logs => _logs;
   ProtocolType? get manualProtocol => _manualProtocol;
 
+  bool get isResearchMode {
+    final name = _bleService.currentDevice?.platformName.toLowerCase() ?? '';
+    return name.contains('64507067');
+  }
+
+  String get deviceDisplayName {
+    final dev = _bleService.currentDevice;
+    if (dev == null) return "Not Connected";
+    final name = dev.platformName;
+    if (name.contains('64507067')) return "Unknown 64507067 (Research)";
+    if (name.toLowerCase().contains('fresh') || name.toLowerCase().contains('air')) return "Fresh Air (Stable)";
+    return name.isNotEmpty ? name : "Device (${dev.remoteId})";
+  }
+
   void addToLog(String message) {
     String timestamp = DateTime.now()
         .toIso8601String()
@@ -147,6 +161,11 @@ class BluetoothProvider with ChangeNotifier {
 
           // Send appropriate protocol-specific commands
           Future.delayed(const Duration(seconds: 1), () {
+            if (isResearchMode) {
+              _runAutoProbe();
+              return;
+            }
+
             switch (protocol) {
               case ProtocolType.a:
                 syncTime();
@@ -162,7 +181,13 @@ class BluetoothProvider with ChangeNotifier {
           });
         } else {
           // Fallback: try protocol A
-          Future.delayed(const Duration(seconds: 1), () => syncTime());
+          Future.delayed(const Duration(seconds: 1), () {
+            if (isResearchMode) {
+              _runAutoProbe();
+            } else {
+              syncTime();
+            }
+          });
         }
       } else {
         _lastParsedStatus = null;
@@ -314,12 +339,16 @@ class BluetoothProvider with ChangeNotifier {
     );
 
     if (protocol != null) {
-      if (protocol == ProtocolType.a) {
-        _bleService.writeData(ProtocolHandler.setIonSwitchA(_ionEnabled));
-      } else if (protocol == ProtocolType.b) {
-        _bleService.writeData(
-          ProtocolHandler.buildProtocolB(data: [0x05, _ionEnabled ? 1 : 0]),
-        );
+      switch (protocol) {
+        case ProtocolType.a:
+          _bleService.writeData(ProtocolHandler.setIonSwitchA(_ionEnabled));
+          break;
+        case ProtocolType.b:
+          _bleService.writeData(ProtocolHandler.setIonSwitchB(_ionEnabled));
+          break;
+        case ProtocolType.c:
+          _bleService.writeData(ProtocolHandler.setIonSwitchC(_ionEnabled));
+          break;
       }
     }
     notifyListeners();
@@ -335,12 +364,16 @@ class BluetoothProvider with ChangeNotifier {
     );
 
     if (protocol != null) {
-      if (protocol == ProtocolType.a) {
-        _bleService.writeData(
-          ProtocolHandler.setFragranceSwitchA(_fragranceEnabled),
-        );
-      } else if (protocol == ProtocolType.b) {
-        _bleService.writeData(ProtocolHandler.setPowerB(_fragranceEnabled));
+      switch (protocol) {
+        case ProtocolType.a:
+          _bleService.writeData(ProtocolHandler.setFragranceSwitchA(_fragranceEnabled));
+          break;
+        case ProtocolType.b:
+          _bleService.writeData(ProtocolHandler.setPowerB(_fragranceEnabled));
+          break;
+        case ProtocolType.c:
+          _bleService.writeData(ProtocolHandler.setFragranceSwitchC(_fragranceEnabled));
+          break;
       }
     }
     notifyListeners();
@@ -386,6 +419,76 @@ class BluetoothProvider with ChangeNotifier {
       addToLog("Manual protocol applied: $type");
     }
     notifyListeners();
+  }
+
+  void sendRawHex(String hex) {
+    try {
+      final bytes = hex.split(' ').where((s) => s.isNotEmpty).map((s) => int.parse(s, radix: 16)).toList();
+      addToLog("RESEARCH: Sending Raw Bytes: $hex");
+      _bleService.writeData(Uint8List.fromList(bytes));
+    } catch (e) {
+      addToLog("RESEARCH ERROR: Invalid Hex input");
+    }
+  }
+
+  void sendATCommand(String cmd) {
+    addToLog("RESEARCH: Sending AT Command: $cmd");
+    _bleService.writeData(ProtocolHandler.buildATCommand(cmd));
+  }
+
+  void testProtocolCommand(ProtocolType type, String commandName) {
+    addToLog("RESEARCH: Testing $commandName on $type");
+    switch (commandName) {
+      case 'Power ON':
+        if (type == ProtocolType.a) _bleService.writeData(ProtocolHandler.setFragranceSwitchA(true));
+        if (type == ProtocolType.b) _bleService.writeData(ProtocolHandler.setPowerB(true));
+        if (type == ProtocolType.c) _bleService.writeData(ProtocolHandler.startProtocolC());
+        break;
+      case 'Power OFF':
+        if (type == ProtocolType.a) _bleService.writeData(ProtocolHandler.setFragranceSwitchA(false));
+        if (type == ProtocolType.b) _bleService.writeData(ProtocolHandler.setPowerB(false));
+        if (type == ProtocolType.c) _bleService.writeData(ProtocolHandler.stopProtocolC());
+        break;
+      case 'Intensity 1':
+        if (type == ProtocolType.a) _bleService.writeData(ProtocolHandler.setIntensityA(0, 1));
+        if (type == ProtocolType.b) _bleService.writeData(ProtocolHandler.setIntensityB(0, 1));
+        if (type == ProtocolType.c) _bleService.writeData(ProtocolHandler.setIntensityC(0, 1));
+        break;
+      case 'Sync Time':
+        _bleService.writeData(ProtocolHandler.syncTime(type));
+        break;
+      case 'Probe 02':
+        if (type == ProtocolType.c) _bleService.writeData(ProtocolHandler.buildProtocolC(0x02, [0x01]));
+        break;
+      case 'Probe 04':
+        if (type == ProtocolType.c) _bleService.writeData(ProtocolHandler.buildProtocolC(0x04, [0x01]));
+        break;
+      case 'Probe 06':
+        if (type == ProtocolType.c) _bleService.writeData(ProtocolHandler.buildProtocolC(0x06, [0x01]));
+        break;
+    }
+  }
+
+  Future<void> _runAutoProbe() async {
+    addToLog("🚀 STARTING AUTO-PROBE for Research Board...");
+    
+    final atCommands = ['AT', 'AT+NAME?', 'AT+VERSION', 'AT+ADDR?', 'AT+BAUD?', 'AT+MAC?'];
+    for (var cmd in atCommands) {
+      if (!_isConnected) return;
+      sendATCommand(cmd);
+      await Future.delayed(const Duration(milliseconds: 600));
+    }
+
+    addToLog("🔬 Probing Protocol C commands...");
+    // Probe basic commands 1 to 7
+    for (int i = 1; i <= 7; i++) {
+      if (!_isConnected) return;
+      addToLog("PROBE: Protocol C CMD 0x${i.toRadixString(16)}");
+      _bleService.writeData(ProtocolHandler.buildProtocolC(i, [0x01]));
+      await Future.delayed(const Duration(milliseconds: 600));
+    }
+
+    addToLog("✅ AUTO-PROBE FINISHED. Check logs above for responses.");
   }
 
   @override

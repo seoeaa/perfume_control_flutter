@@ -19,37 +19,47 @@ class DeviceProfile {
 class DeviceProfileManager {
   static final List<DeviceProfile> profiles = [
     DeviceProfile(
-      name: 'classic_ffe',
-      // Some classic FFE boards expose two writable chars (ffe1 and ffe3).
-      // Prefer ffe1 first: on a subset of Fresh Air devices ffe3 accepts
-      // writes at BLE level, but the MCU ignores control commands there.
-      // Keep ffe3 as fallback for older firmware variants.
-      writeUuids: ['ffe1', 'ffe3'],
-      notifyUuids: ['ffe2'],
-      protocol: ProtocolType.a,
+      name: 'Fresh Air',
+      // The "Good" board that works with Protocol B.
+      // Often uses ffe1/ffe2 or fff1/fff2 but sends A5/55 packets.
+      writeUuids: ['ffe1', 'fff2'],
+      notifyUuids: ['ffe2', 'fff1'],
+      protocol: ProtocolType.b,
     ),
     DeviceProfile(
-      name: 'classic_fff',
+      name: 'Unknown 64507067',
+      // The "Research" board that matches this specific name/ID.
       writeUuids: ['fff2'],
       notifyUuids: ['fff1'],
       protocol: ProtocolType.c,
     ),
     DeviceProfile(
-      name: 'new_board',
-      writeUuids: ['00112433-4455-6677-8899-aabbccddeeff'],
-      notifyUuids: ['00112333-4455-6677-8899-aabbccddeeff'],
-      protocol: ProtocolType.c,
+      name: 'Fresh Air (Legacy)',
+      writeUuids: ['ffe1', 'ffe3'],
+      notifyUuids: ['ffe2'],
+      protocol: ProtocolType.a,
     ),
   ];
 
-  static DeviceProfile? findProfile(List<BluetoothService> services) {
+  static DeviceProfile? findProfile(BluetoothDevice device, List<BluetoothService> services) {
+    final name = device.platformName.toLowerCase();
+    
+    // Exact name matching for known boards
+    if (name.contains('64507067')) {
+      return profiles.firstWhere((p) => p.name.contains('64507067'));
+    }
+    
+    // Fresh Air boards often have "Fresh" or "Air" in the name
+    if (name.contains('fresh') || name.contains('air')) {
+      return profiles.firstWhere((p) => p.name == 'Fresh Air');
+    }
+
     final discovered = <String>{};
     for (final service in services) {
       for (final characteristic in service.characteristics) {
         discovered.add(characteristic.uuid.toString().toLowerCase());
       }
     }
-
 
     DeviceProfile? bestProfile;
     int bestScore = -1;
@@ -64,18 +74,8 @@ class DeviceProfileManager {
       // Higher score for write matches
       final score = (writeMatches * 10) + notifyMatches;
 
-      // SPECIFICITY: 128-bit UUIDs are much more important than 16-bit fff1/ffe1
-      final specificity = [
-        ...matchedWrite,
-        ...matchedNotify,
-      ].where((uuid) => uuid.length > 8).length;
-
-      // If we have a 128-bit match, ignore 16-bit matches if they belong to a different profile
-      // Or simply add a massive weight to specificity
-      final totalScore = score + (specificity * 100);
-
-      if (totalScore > bestScore && writeMatches > 0) {
-        bestScore = totalScore;
+      if (score > bestScore && writeMatches > 0) {
+        bestScore = score;
         bestProfile = profile;
       }
     }
