@@ -244,7 +244,10 @@ class ProtocolHandler {
       return ProtocolType.a;
     }
 
-    if (response.first == headerC1) { // 0xAA
+    if (response.length > 1 && response[0] == headerC1 && response[1] == headerC2) {
+      return ProtocolType.c;
+    }
+    if (response.first == headerC1) { // 0xAA fallback
       return ProtocolType.c;
     }
 
@@ -321,6 +324,36 @@ class ProtocolHandler {
     } catch (e) {
       return null;
     }
+  }
+
+  /// Parses Protocol C Packet (AA 55 Cmd Data... Sum-1)
+  static DeviceStatus? parseStatusC(List<int> data) {
+    if (data.length < 4 || data[0] != 0xAA || data[1] != 0x55) return null;
+
+    int cmd = data[2];
+    // Command 0x03 usually carries levels in research boards
+    if (cmd == 0x03 && data.length >= 6) {
+      return DeviceStatus(
+        levelA: data[3],
+        levelB: data[4],
+        levelC: data[5],
+        flags: data.length > 6 ? data[6] : 0,
+        powerOn: true, // We'll infer this from levels or flags
+        rawBytes: List<int>.from(data),
+      );
+    }
+    
+    // Command 0x01 might be power state confirmation
+    if (cmd == 0x01 && data.length >= 4) {
+      return DeviceStatus(
+        levelA: 0, levelB: 0, levelC: 0,
+        flags: 0,
+        powerOn: data[3] == 0x01,
+        rawBytes: List<int>.from(data),
+      );
+    }
+
+    return null;
   }
 }
 

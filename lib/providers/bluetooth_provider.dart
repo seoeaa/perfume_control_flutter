@@ -254,6 +254,25 @@ class BluetoothProvider with ChangeNotifier {
             notifyListeners();
           }
         }
+        
+        // Protocol C check (AA 55 header)
+        if (data.length > 1 && data[0] == 0xAA && data[1] == 0x55) {
+          final status = ProtocolHandler.parseStatusC(data);
+          if (status != null) {
+            _logStatusDiff(status);
+            if (status.levelA > 10) _fluidLevels[0] = status.levelA;
+            if (status.levelB > 10) _fluidLevels[1] = status.levelB;
+            if (status.levelC > 10) _fluidLevels[2] = status.levelC;
+            
+            if (!_isManualOverride) {
+              _isPowerOn = status.powerOn;
+              if (status.levelA <= 3) _intensities[0] = status.levelA;
+              if (status.levelB <= 3) _intensities[1] = status.levelB;
+              if (status.levelC <= 3) _intensities[2] = status.levelC;
+            }
+            notifyListeners();
+          }
+        }
       } catch (e) {
         addToLog("Parsing error: $e");
       }
