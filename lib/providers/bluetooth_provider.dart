@@ -23,14 +23,14 @@ class BluetoothProvider with ChangeNotifier {
   final Map<int, int> _fluidLevels = {0: 0, 1: 0, 2: 0};
 
   // Scent Names (Customizable)
-  Map<int, String> _scentNames = {
+  final Map<int, String> _scentNames = {
     0: 'Summer (Лето)',
     1: 'Ocean (Океан)',
     2: 'Wood (Лес)',
   };
 
   // Debug Logs
-  List<String> _logs = [];
+  final List<String> _logs = [];
   DeviceStatus? _lastParsedStatus;
 
   bool get isConnected => _isConnected;
@@ -146,7 +146,7 @@ class BluetoothProvider with ChangeNotifier {
   }
 
   BluetoothProvider() {
-    _loadScentNames();
+    _loadSettings();
     _bleService.connectionStatus.listen((status) {
       _isConnected = status;
       addToLog(status ? "Connected successfully" : "Disconnected");
@@ -177,26 +177,27 @@ class BluetoothProvider with ChangeNotifier {
 
             switch (protocol) {
               case ProtocolType.a:
-                syncTime();
+                syncSettingsToDevice();
                 break;
               case ProtocolType.b:
                 _bleService.writeData(ProtocolHandler.requestStatusB());
+                // For B, we could also send initial settings, but device is usually authoritative
                 break;
               case ProtocolType.c:
                 _bleService.sendStartCommand();
-                syncTime(); // Also sync time for C if supported
+                syncSettingsToDevice();
                 break;
             }
           });
         } else {
           // Fallback: try protocol A
-          Future.delayed(const Duration(seconds: 1), () {
-            if (isResearchMode) {
-              _runAutoProbe();
-            } else {
-              syncTime();
-            }
-          });
+        Future.delayed(const Duration(seconds: 1), () {
+          if (isResearchMode) {
+            _runAutoProbe();
+          } else {
+            syncSettingsToDevice();
+          }
+        });
         }
       } else {
         _lastParsedStatus = null;
@@ -297,9 +298,10 @@ class BluetoothProvider with ChangeNotifier {
     await _bleService.establishConnection(device);
   }
 
-  void togglePower() {
+  void togglePower() async {
     _isPowerOn = !_isPowerOn;
     _isManualOverride = true;
+    _saveSetting('power_on', _isPowerOn);
     Future.delayed(const Duration(seconds: 2), () => _isManualOverride = false);
     
     final profile = _bleService.currentProfile;
@@ -335,9 +337,10 @@ class BluetoothProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  void toggleIon() {
+  void toggleIon() async {
     _ionEnabled = !_ionEnabled;
     _isManualOverride = true;
+    _saveSetting('ion_enabled', _ionEnabled);
     Future.delayed(const Duration(seconds: 2), () => _isManualOverride = false);
 
     final profile = _bleService.currentProfile;
@@ -363,8 +366,9 @@ class BluetoothProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  void toggleFragrance() {
+  void toggleFragrance() async {
     _fragranceEnabled = !_fragranceEnabled;
+    _saveSetting('fragrance_enabled', _fragranceEnabled);
     final profile = _bleService.currentProfile;
     final protocol = _manualProtocol ?? profile?.protocol;
 
@@ -388,8 +392,9 @@ class BluetoothProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  void setChannelIntensity(int channel, int level) {
+  void setChannelIntensity(int channel, int level) async {
     _intensities[channel] = level;
+    _saveSetting('intensity_$channel', level);
     final profile = _bleService.currentProfile;
     final protocol = _manualProtocol ?? profile?.protocol;
 
@@ -421,8 +426,51 @@ class BluetoothProvider with ChangeNotifier {
     _bleService.writeData(ProtocolHandler.syncTime(protocol));
   }
 
-  void setManualProtocol(ProtocolType? type) {
+  void syncSettingsToDevice() async {
+    final protocol = _manualProtocol ?? _bleService.currentProfile?.protocol ?? ProtocolType.a;
+    addToLog("UI Action: syncSettingsToDevice(protocol=$protocol)");
+
+    // 1. Sync Time
+    _bleService.writeData(ProtocolHandler.syncTime(protocol));
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    // 2. Power/Fragrance
+    if (protocol == ProtocolType.a) {
+      _bleService.writeData(ProtocolHandler.setFragranceSwitchA(_isPowerOn));
+    } else if (protocol == ProtocolType.b) {
+      _bleService.writeData(ProtocolHandler.setPowerB(_isPowerOn));
+    } else if (protocol == ProtocolType.c) {
+      if (_isPowerOn) _bleService.sendStartCommand(); else _bleService.sendStopCommand();
+    }
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    // 3. Ion
+    if (protocol == ProtocolType.a) {
+      _bleService.writeData(ProtocolHandler.setIonSwitchA(_ionEnabled));
+    } else if (protocol == ProtocolType.b) {
+      _bleService.writeData(ProtocolHandler.setIonSwitchB(_ionEnabled));
+    } else if (protocol == ProtocolType.c) {
+      _bleService.writeData(ProtocolHandler.setIonSwitchC(_ionEnabled));
+    }
+    await Future.delayed(const Duration(milliseconds: 300));
+
+    // 4. Intensities
+    for (int i = 0; i < 3; i++) {
+        final level = _intensities[i] ?? 0;
+        if (protocol == ProtocolType.a) {
+          _bleService.writeData(ProtocolHandler.setIntensityA(i, level));
+        } else if (protocol == ProtocolType.b) {
+          _bleService.writeData(ProtocolHandler.setIntensityB(i, level));
+        } else if (protocol == ProtocolType.c) {
+          _bleService.writeData(ProtocolHandler.setIntensityC(i, level));
+        }
+        await Future.delayed(const Duration(milliseconds: 300));
+    }
+  }
+
+  void setManualProtocol(ProtocolType? type) async {
     _manualProtocol = type;
+    _saveSetting('manual_protocol', type?.name);
     if (_isConnected && type != null) {
       _bleService.forceProtocol(type);
       addToLog("Manual protocol applied: $type");
@@ -440,31 +488,63 @@ class BluetoothProvider with ChangeNotifier {
     }
   }
 
-  Future<void> _loadScentNames() async {
+  Future<void> _loadSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      
+      // Load Scent Names
       final name0 = prefs.getString('scent_name_0');
       final name1 = prefs.getString('scent_name_1');
       final name2 = prefs.getString('scent_name_2');
-
       if (name0 != null) _scentNames[0] = name0;
       if (name1 != null) _scentNames[1] = name1;
       if (name2 != null) _scentNames[2] = name2;
+
+      // Load Status
+      _isPowerOn = prefs.getBool('power_on') ?? true;
+      _ionEnabled = prefs.getBool('ion_enabled') ?? false;
+      _fragranceEnabled = prefs.getBool('fragrance_enabled') ?? true;
+
+      // Load Intensities
+      _intensities[0] = prefs.getInt('intensity_0') ?? _intensities[0]!;
+      _intensities[1] = prefs.getInt('intensity_1') ?? _intensities[1]!;
+      _intensities[2] = prefs.getInt('intensity_2') ?? _intensities[2]!;
+
+      // Load Protocol
+      final protoName = prefs.getString('manual_protocol');
+      if (protoName != null) {
+        try {
+          _manualProtocol = ProtocolType.values.byName(protoName);
+        } catch (_) {}
+      }
+
       notifyListeners();
     } catch (e) {
-      debugPrint('Error loading scent names: $e');
+      debugPrint('Error loading settings: $e');
+    }
+  }
+
+  Future<void> _saveSetting(String key, dynamic value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (value is String) {
+        await prefs.setString(key, value);
+      } else if (value is bool) {
+        await prefs.setBool(key, value);
+      } else if (value is int) {
+        await prefs.setInt(key, value);
+      } else if (value == null) {
+        await prefs.remove(key);
+      }
+    } catch (e) {
+      debugPrint('Error saving setting $key: $e');
     }
   }
 
   Future<void> updateScentName(int index, String newName) async {
     _scentNames[index] = newName;
     notifyListeners();
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('scent_name_$index', newName);
-    } catch (e) {
-      debugPrint('Error saving scent name: $e');
-    }
+    _saveSetting('scent_name_$index', newName);
   }
 
   void sendATCommand(String cmd) {

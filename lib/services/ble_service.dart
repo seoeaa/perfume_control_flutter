@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -259,12 +258,12 @@ class BleService {
         String? asciiStr;
         try {
           if (value.every((b) => (b >= 32 && b <= 126) || b == 10 || b == 13)) {
-            asciiStr = String.fromCharCodes(value).replaceAll('\r', '\\r').replaceAll('\n', '\\n');
+            asciiStr = String.fromCharCodes(value).replaceAll('\r', r'\r').replaceAll('\n', r'\n');
           }
         } catch (_) {}
 
         log(
-          "Session #$_sessionId | RX #$_rxCounter | from $uuid | len=${value.length} | $hexStr ${asciiStr != null ? ' | ASCII: \"$asciiStr\"' : ''}",
+          "Session #$_sessionId | RX #$_rxCounter | from $uuid | len=${value.length} | $hexStr ${asciiStr != null ? ' | ASCII: "$asciiStr"' : ''}",
         );
       }
 

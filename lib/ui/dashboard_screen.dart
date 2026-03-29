@@ -185,7 +185,7 @@ class DashboardScreen extends StatelessWidget {
                                         height: 40,
                                         decoration: BoxDecoration(
                                           color: isActive
-                                              ? Colors.blueAccent.withOpacity(0.2)
+                                              ? Colors.blueAccent.withValues(alpha: 0.2)
                                               : Colors.white10,
                                           borderRadius: BorderRadius.circular(12),
                                         ),
@@ -234,7 +234,7 @@ class DashboardScreen extends StatelessWidget {
                                 Switch(
                                   value: isActive,
                                   onChanged: (on) => bluetoothProvider.setChannelIntensity(index, on ? 2 : 0),
-                                  activeColor: Colors.white,
+                                  activeThumbColor: Colors.white,
                                   activeTrackColor: Colors.blueAccent,
                                   inactiveThumbColor: Colors.white54,
                                   inactiveTrackColor: Colors.white10,
@@ -430,7 +430,7 @@ class DashboardScreen extends StatelessWidget {
                     child: ListView.separated(
                       shrinkWrap: true,
                       itemCount: provider.discoveredDevices.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      separatorBuilder: (_, _) => const SizedBox(height: 8),
                       itemBuilder: (context, index) {
                         final result = provider.discoveredDevices[index];
                         final name = result.device.platformName.isNotEmpty
@@ -661,7 +661,7 @@ class DashboardScreen extends StatelessWidget {
                       Expanded(
                         child: Container(
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.05),
+                            color: Colors.white.withValues(alpha: 0.05),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: Colors.white10),
                           ),
@@ -811,7 +811,7 @@ class _ResearchControlsState extends State<_ResearchControls> {
                   },
                   icon: const Icon(Icons.send),
                   label: const Text('Собрать и Отправить'),
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent.withOpacity(0.3)),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent.withValues(alpha: 0.3)),
                 ),
               ),
             ],
@@ -1020,7 +1020,7 @@ class _TestSet extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.05),
+        color: Colors.white.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.white10),
       ),
@@ -1056,7 +1056,7 @@ class _QuickBtn extends StatelessWidget {
     return ElevatedButton(
       onPressed: onTap,
       style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.blueAccent.withOpacity(0.2),
+        backgroundColor: Colors.blueAccent.withValues(alpha: 0.2),
         foregroundColor: Colors.white,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0),
         minimumSize: const Size(40, 30),
@@ -1096,7 +1096,7 @@ class _ExtraControlCard extends StatelessWidget {
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   color: isWarning && value 
-                    ? Colors.redAccent.withOpacity(0.2) 
+                    ? Colors.redAccent.withValues(alpha: 0.2) 
                     : Colors.white10,
                   borderRadius: BorderRadius.circular(10),
                 ),
@@ -1109,7 +1109,7 @@ class _ExtraControlCard extends StatelessWidget {
               Switch(
                 value: value,
                 onChanged: onChanged,
-                activeColor: Colors.white,
+                activeThumbColor: Colors.white,
                 activeTrackColor: isWarning ? Colors.redAccent : Colors.blueAccent,
                 inactiveThumbColor: Colors.white54,
                 inactiveTrackColor: Colors.white10,
@@ -1166,7 +1166,7 @@ class _LevelBtn extends StatelessWidget {
           boxShadow: active
               ? [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
+                    color: Colors.black.withValues(alpha: 0.1),
                     blurRadius: 4,
                     offset: const Offset(0, 2),
                   )
