@@ -96,6 +96,13 @@ class SupportScreen extends StatelessWidget {
                         color: Colors.white,
                       ),
                     ),
+                    Text(
+                      'v${UpdateService.currentVersion}',
+                      style: GoogleFonts.outfit(
+                        fontSize: 14,
+                        color: Colors.white54,
+                      ),
+                    ),
                     const SizedBox(height: 12),
                     Text(
                       'Существует несколько версий контроллеров. Если программа не работает корректно, пожалуйста, подключитесь к устройству, скопируйте лог (нажав на иконку консоли на главном экране) и пришлите его разработчикам.',

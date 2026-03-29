@@ -24,8 +24,16 @@ class UpdateService {
   static const String _apiUrl =
       'https://api.github.com/repos/$_repo/releases/latest';
 
+  // Version injected at build time via --dart-define=APP_VERSION=0.1.1
+  static const String _buildVersion = String.fromEnvironment(
+    'APP_VERSION',
+    defaultValue: '0.1.0',
+  );
+
+  static String get currentVersion => _buildVersion;
+
   static Future<UpdateInfo> checkForUpdate() async {
-    const currentVersion = '0.1.0';
+    final currentVersion = _buildVersion;
 
     try {
       final response = await http.get(
