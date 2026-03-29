@@ -16,6 +16,7 @@ class BluetoothProvider with ChangeNotifier {
   // Independent levels (Intensity) for A, B, C (0: Off, 1: Light, 2: Fresh, 3: Rich)
   final Map<int, int> _intensities = {0: 1, 1: 0, 2: 0};
   bool _isManualOverride = false;
+  ProtocolType? _manualProtocol;
 
   // Fluid Levels (0-100%)
   final Map<int, int> _fluidLevels = {0: 0, 1: 0, 2: 0};
@@ -33,6 +34,7 @@ class BluetoothProvider with ChangeNotifier {
   int getIntensity(int channel) => _intensities[channel] ?? 0;
   int getFluidLevel(int channel) => _fluidLevels[channel] ?? 100;
   List<String> get logs => _logs;
+  ProtocolType? get manualProtocol => _manualProtocol;
 
   void addToLog(String message) {
     String timestamp = DateTime.now()
@@ -129,16 +131,23 @@ class BluetoothProvider with ChangeNotifier {
         _isScanning = false;
         _discoveredDevices = [];
 
-        // Use detected profile to determine protocol
+        // Use manual protocol if set, otherwise use detected profile
         final profile = _bleService.currentProfile;
-        if (profile != null) {
+        final protocol = _manualProtocol ?? profile?.protocol;
+
+        if (_manualProtocol != null) {
+          _bleService.forceProtocol(_manualProtocol!);
+          addToLog("Manual protocol OVERRIDE: $_manualProtocol");
+        }
+
+        if (protocol != null) {
           addToLog(
-            "Using profile: ${profile.name} (protocol: ${profile.protocol})",
+            "Using protocol: $protocol (Source: ${_manualProtocol != null ? 'Manual' : 'Auto'})",
           );
 
           // Send appropriate protocol-specific commands
           Future.delayed(const Duration(seconds: 1), () {
-            switch (profile.protocol) {
+            switch (protocol) {
               case ProtocolType.a:
                 syncTime();
                 break;
@@ -147,6 +156,7 @@ class BluetoothProvider with ChangeNotifier {
                 break;
               case ProtocolType.c:
                 _bleService.sendStartCommand();
+                syncTime(); // Also sync time for C if supported
                 break;
             }
           });
@@ -259,12 +269,14 @@ class BluetoothProvider with ChangeNotifier {
     Future.delayed(const Duration(seconds: 2), () => _isManualOverride = false);
     
     final profile = _bleService.currentProfile;
+    final protocol = _manualProtocol ?? profile?.protocol;
+
     addToLog(
-      "UI Action: togglePower -> $_isPowerOn (profile=${profile?.name}, protocol=${profile?.protocol})",
+      "UI Action: togglePower -> $_isPowerOn (protocol=$protocol)",
     );
 
-    if (profile != null) {
-      switch (profile.protocol) {
+    if (protocol != null) {
+      switch (protocol) {
         case ProtocolType.a:
           _bleService.writeData(
             ProtocolHandler.setFragranceSwitchA(_isPowerOn),
@@ -295,14 +307,16 @@ class BluetoothProvider with ChangeNotifier {
     Future.delayed(const Duration(seconds: 2), () => _isManualOverride = false);
 
     final profile = _bleService.currentProfile;
+    final protocol = _manualProtocol ?? profile?.protocol;
+
     addToLog(
-      "UI Action: toggleIon -> $_ionEnabled (profile=${profile?.name}, protocol=${profile?.protocol})",
+      "UI Action: toggleIon -> $_ionEnabled (protocol=$protocol)",
     );
 
-    if (profile != null) {
-      if (profile.protocol == ProtocolType.a) {
+    if (protocol != null) {
+      if (protocol == ProtocolType.a) {
         _bleService.writeData(ProtocolHandler.setIonSwitchA(_ionEnabled));
-      } else if (profile.protocol == ProtocolType.b) {
+      } else if (protocol == ProtocolType.b) {
         _bleService.writeData(
           ProtocolHandler.buildProtocolB(data: [0x05, _ionEnabled ? 1 : 0]),
         );
@@ -314,16 +328,18 @@ class BluetoothProvider with ChangeNotifier {
   void toggleFragrance() {
     _fragranceEnabled = !_fragranceEnabled;
     final profile = _bleService.currentProfile;
+    final protocol = _manualProtocol ?? profile?.protocol;
+
     addToLog(
-      "UI Action: toggleFragrance -> $_fragranceEnabled (profile=${profile?.name}, protocol=${profile?.protocol})",
+      "UI Action: toggleFragrance -> $_fragranceEnabled (protocol=$protocol)",
     );
 
-    if (profile != null) {
-      if (profile.protocol == ProtocolType.a) {
+    if (protocol != null) {
+      if (protocol == ProtocolType.a) {
         _bleService.writeData(
           ProtocolHandler.setFragranceSwitchA(_fragranceEnabled),
         );
-      } else if (profile.protocol == ProtocolType.b) {
+      } else if (protocol == ProtocolType.b) {
         _bleService.writeData(ProtocolHandler.setPowerB(_fragranceEnabled));
       }
     }
@@ -333,12 +349,14 @@ class BluetoothProvider with ChangeNotifier {
   void setChannelIntensity(int channel, int level) {
     _intensities[channel] = level;
     final profile = _bleService.currentProfile;
+    final protocol = _manualProtocol ?? profile?.protocol;
+
     addToLog(
-      "UI Action: setChannelIntensity(channel=$channel, level=$level, profile=${profile?.name}, protocol=${profile?.protocol})",
+      "UI Action: setChannelIntensity(channel=$channel, level=$level, protocol=$protocol)",
     );
 
-    if (profile != null) {
-      switch (profile.protocol) {
+    if (protocol != null) {
+      switch (protocol) {
         case ProtocolType.a:
           _bleService.writeData(ProtocolHandler.setIntensityA(channel, level));
           break;
@@ -356,8 +374,18 @@ class BluetoothProvider with ChangeNotifier {
   }
 
   void syncTime() {
-    addToLog("UI Action: syncTime()");
-    _bleService.writeData(ProtocolHandler.syncTimeA());
+    final protocol = _manualProtocol ?? _bleService.currentProfile?.protocol ?? ProtocolType.a;
+    addToLog("UI Action: syncTime(protocol=$protocol)");
+    _bleService.writeData(ProtocolHandler.syncTime(protocol));
+  }
+
+  void setManualProtocol(ProtocolType? type) {
+    _manualProtocol = type;
+    if (_isConnected && type != null) {
+      _bleService.forceProtocol(type);
+      addToLog("Manual protocol applied: $type");
+    }
+    notifyListeners();
   }
 
   @override

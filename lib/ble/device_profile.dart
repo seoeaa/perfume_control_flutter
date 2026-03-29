@@ -50,37 +50,43 @@ class DeviceProfileManager {
       }
     }
 
+
     DeviceProfile? bestProfile;
     int bestScore = -1;
-    int bestSpecificity = -1;
 
     for (final profile in profiles) {
-      final matchedWrite = profile.writeUuids.where(discovered.contains).toList();
-      final matchedNotify = profile.notifyUuids.where(discovered.contains).toList();
+      final matchedWrite = profile.writeUuids.where((u) => discovered.contains(u.toLowerCase())).toList();
+      final matchedNotify = profile.notifyUuids.where((u) => discovered.contains(u.toLowerCase())).toList();
 
       final writeMatches = matchedWrite.length;
       final notifyMatches = matchedNotify.length;
 
-      // Prioritize write match, then notify match.
+      // Higher score for write matches
       final score = (writeMatches * 10) + notifyMatches;
 
-      // 128-bit UUID profiles are typically more specific than legacy 16-bit FFF/FFE aliases.
+      // SPECIFICITY: 128-bit UUIDs are much more important than 16-bit fff1/ffe1
       final specificity = [
         ...matchedWrite,
         ...matchedNotify,
       ].where((uuid) => uuid.length > 8).length;
 
-      final isBetter = score > bestScore ||
-          (score == bestScore && specificity > bestSpecificity);
+      // If we have a 128-bit match, ignore 16-bit matches if they belong to a different profile
+      // Or simply add a massive weight to specificity
+      final totalScore = score + (specificity * 100);
 
-      if (isBetter && writeMatches > 0) {
-        bestScore = score;
-        bestSpecificity = specificity;
+      if (totalScore > bestScore && writeMatches > 0) {
+        bestScore = totalScore;
         bestProfile = profile;
       }
     }
 
     return bestProfile;
+  }
+
+  static DeviceProfile? getProfileForProtocol(ProtocolType protocol) {
+    // Return the most modern profile for this protocol
+    return profiles.lastWhere((p) => p.protocol == protocol, 
+      orElse: () => profiles.firstWhere((p) => p.protocol == protocol));
   }
 
   static List<String> getAllWriteUuids() {

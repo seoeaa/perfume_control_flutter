@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../providers/bluetooth_provider.dart';
 import 'widgets/glass_card.dart';
 import 'support_screen.dart';
+import '../ble/device_profile.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({super.key});
@@ -49,16 +50,16 @@ class DashboardScreen extends StatelessWidget {
                             'LI Perfume',
                             style: GoogleFonts.outfit(
                               color: Colors.white,
-                              fontSize: 28,
+                              fontSize: 32,
                               fontWeight: FontWeight.bold,
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 6),
                           Row(
                             children: [
                               Container(
-                                width: 8,
-                                height: 8,
+                                width: 10,
+                                height: 10,
                                 decoration: BoxDecoration(
                                   color: bluetoothProvider.isConnected
                                       ? Colors.greenAccent
@@ -69,8 +70,8 @@ class DashboardScreen extends StatelessWidget {
                                       color: (bluetoothProvider.isConnected
                                               ? Colors.greenAccent
                                               : Colors.redAccent)
-                                          .withOpacity(0.5),
-                                      blurRadius: 6,
+                                          .withValues(alpha: 0.5),
+                                      blurRadius: 8,
                                       spreadRadius: 2,
                                     ),
                                   ],
@@ -91,77 +92,59 @@ class DashboardScreen extends StatelessWidget {
                           ),
                         ],
                       ),
-                      Row(
-                        children: [
-                          GestureDetector(
-                            onTap: () => _showLogConsole(context),
-                            child: Container(
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.2),
-                                ),
-                              ),
-                              child: const Icon(
-                                Icons.terminal,
-                                color: Colors.amberAccent,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          GestureDetector(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => const SupportScreen(),
-                                ),
-                              );
-                            },
-                            child: Container(
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.2),
-                                ),
-                              ),
-                              child: const Icon(
-                                Icons.help_outline,
-                                color: Colors.lightBlueAccent,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          GestureDetector(
-                            onTap: () {
-                              bluetoothProvider.scanAndConnect();
-                              _showDevicePicker(context, bluetoothProvider);
-                            },
-                            child: Container(
-                              width: 48,
-                              height: 48,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.2),
-                                ),
-                              ),
-                              child: const Icon(
-                                Icons.bluetooth_searching,
-                                color: Colors.blueAccent,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
                     ],
+                  ),
+
+                  const SizedBox(height: 24),
+
+                  // New Utility Row
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _buildUtilityButton(
+                          context,
+                          icon: Icons.bluetooth_searching,
+                          label: 'Скан',
+                          color: Colors.blueAccent,
+                          onTap: () {
+                            bluetoothProvider.scanAndConnect();
+                            _showDevicePicker(context, bluetoothProvider);
+                          },
+                        ),
+                        const SizedBox(width: 12),
+                        _buildUtilityButton(
+                          context,
+                          icon: Icons.settings_suggest,
+                          label: 'Плата',
+                          color: Colors.white70,
+                          onTap: () => _showProtocolDialog(context, bluetoothProvider),
+                        ),
+                        const SizedBox(width: 12),
+                        _buildUtilityButton(
+                          context,
+                          icon: Icons.terminal,
+                          label: 'Логи',
+                          color: Colors.amberAccent,
+                          onTap: () => _showLogConsole(context),
+                        ),
+                        const SizedBox(width: 12),
+                        _buildUtilityButton(
+                          context,
+                          icon: Icons.help_outline,
+                          label: 'Инфо',
+                          color: Colors.lightBlueAccent,
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const SupportScreen(),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
                   ),
 
                   const SizedBox(height: 32),
@@ -462,6 +445,129 @@ class DashboardScreen extends StatelessWidget {
           },
         );
       },
+    );
+  }
+
+
+  void _showProtocolDialog(BuildContext context, BluetoothProvider provider) {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text(
+            'Настройка платы',
+            style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _protocolOption(
+                context,
+                provider,
+                title: 'Авто-определение',
+                subtitle: 'Рекомендуется',
+                type: null,
+              ),
+              const Divider(color: Colors.white10),
+              _protocolOption(
+                context,
+                provider,
+                title: 'Тип 1 (7E)',
+                subtitle: 'Стандарт (свежие платы)',
+                type: ProtocolType.a,
+              ),
+              const Divider(color: Colors.white10),
+              _protocolOption(
+                context,
+                provider,
+                title: 'Тип 2 (A5 / 55)',
+                subtitle: 'Fresh Air / Aromely',
+                type: ProtocolType.b,
+              ),
+              const Divider(color: Colors.white10),
+              _protocolOption(
+                context,
+                provider,
+                title: 'Тип 3 (AA 55)',
+                subtitle: 'Специфичная плата',
+                type: ProtocolType.c,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Закрыть', style: GoogleFonts.outfit(color: Colors.white70)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _protocolOption(
+    BuildContext context,
+    BluetoothProvider provider, {
+    required String title,
+    required String subtitle,
+    required ProtocolType? type,
+  }) {
+    final isSelected = provider.manualProtocol == type;
+    return ListTile(
+      onTap: () {
+        provider.setManualProtocol(type);
+        Navigator.pop(context);
+      },
+      title: Text(
+        title,
+        style: GoogleFonts.outfit(
+          color: isSelected ? Colors.greenAccent : Colors.white,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: GoogleFonts.outfit(color: Colors.white60, fontSize: 12),
+      ),
+      trailing: isSelected ? const Icon(Icons.check_circle, color: Colors.greenAccent) : null,
+    );
+  }
+
+  Widget _buildUtilityButton(
+    BuildContext context, {
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.05),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.1),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: GoogleFonts.outfit(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 

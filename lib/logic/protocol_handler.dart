@@ -60,7 +60,14 @@ class ProtocolHandler {
     final now = DateTime.now();
     return buildProtocolA(
       command: 0x07,
-      data: [now.year % 100, now.month, now.day],
+      data: [
+        now.year % 100, 
+        now.month, 
+        now.day,
+        now.hour,
+        now.minute,
+        now.second,
+      ],
     );
   }
 
@@ -153,7 +160,6 @@ class ProtocolHandler {
     if (data.length < 5 || data[0] != 0x7E) return null;
 
     try {
-      int len = data[1];
       int cmd = data[2];
 
       if (cmd == 0x02) {
@@ -198,12 +204,12 @@ class ProtocolHandler {
   }
 
   /// Detects protocol from notify response
-  static ProtocolType detectProtocol(List<int> response) {
-    if (response.isEmpty) return ProtocolType.a;
+  /// Returns null if header is not recognized to avoid false positives (e.g. AT commands)
+  static ProtocolType? detectProtocol(List<int> response) {
+    if (response.isEmpty) return null;
 
-    // Check for Protocol B (0xA5 header or 0x05, 0x05 sequence in status)
+    // Check for Protocol B (0xA5 header or 0x55/AA sequence)
     if (response.first == 0xA5 || 
-        response.first == 0x55 ||
         (response.length > 1 && response[0] == 0x05 && response[1] == 0x05)) {
       return ProtocolType.b;
     }
@@ -212,11 +218,16 @@ class ProtocolHandler {
       return ProtocolType.a;
     }
 
-    if (response.first == 0xAA) {
+    if (response.first == headerC1) { // 0xAA
       return ProtocolType.c;
     }
 
-    return ProtocolType.a;
+    // Ignore AT responses like 'ATE0' (0x41)
+    if (response[0] == 0x41 || response[0] == 0x4F) { // 'A' or 'O' (OK)
+      return null;
+    }
+
+    return null;
   }
 
   // ========== Protocol C Commands ==========
@@ -230,6 +241,42 @@ class ProtocolHandler {
 
   static Uint8List setIntensityC(int channel, int level) {
     return buildProtocolC(0x03, [channel, level]);
+  }
+
+  static Uint8List syncTimeC() {
+    final now = DateTime.now();
+    return buildProtocolC(0x07, [
+      now.year % 100,
+      now.month,
+      now.day,
+      now.hour,
+      now.minute,
+      now.second,
+    ]);
+  }
+
+  static Uint8List syncTime(ProtocolType type) {
+    switch (type) {
+      case ProtocolType.a:
+        return syncTimeA();
+      case ProtocolType.b:
+        return syncTimeB();
+      case ProtocolType.c:
+        return syncTimeC();
+    }
+  }
+
+  static Uint8List syncTimeB() {
+    final now = DateTime.now();
+    return buildProtocolB(data: [
+      0x07,
+      now.year % 100,
+      now.month,
+      now.day,
+      now.hour,
+      now.minute,
+      now.second,
+    ]);
   }
 }
 

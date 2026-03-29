@@ -110,16 +110,14 @@ class BleService {
       log("Session #$_sessionId | Services discovered: ${services.length}");
 
       // Auto-detect profile
-      _currentProfile = DeviceProfileManager.findProfile(services);
-      var notifySubscribed = false;
-
+      _currentProfile = DeviceProfileManager.findProfile(_services);
       if (_currentProfile != null) {
-        log(
-          "Session #$_sessionId | Profile detected: ${_currentProfile!.name} (protocol: ${_currentProfile!.protocol})",
-        );
+        log("Session #$_sessionId | Profile matched: ${_currentProfile!.name} [Protocol ${_currentProfile!.protocol}]");
       } else {
-        log("Session #$_sessionId | No profile detected, using default search");
+        log("Session #$_sessionId | WARNING: No matching profile found. Using fallback.");
       }
+
+      var notifySubscribed = false;
 
       // Build a UUID->Characteristic lookup first, then pick channels
       // by profile priority (if detected).
@@ -253,26 +251,28 @@ class BleService {
 
       if (value.isNotEmpty) {
         final detected = ProtocolHandler.detectProtocol(value);
-        if (_currentProfile != null && _currentProfile!.protocol != detected) {
-          log(
-            "Session #$_sessionId | Protocol MISMATCH: Profile was ${_currentProfile!.protocol}, Data is $detected. UPGRADING.",
-          );
-          _currentProfile = DeviceProfile(
-            name: "${_currentProfile!.name}_$detected",
-            writeUuids: _currentProfile!.writeUuids,
-            notifyUuids: _currentProfile!.notifyUuids,
-            protocol: detected,
-          );
-        } else if (_currentProfile == null) {
-          _currentProfile = DeviceProfile(
-            name: 'auto',
-            writeUuids: [
-              _writeCharacteristic?.uuid.toString().toLowerCase() ?? '',
-            ],
-            notifyUuids: [uuid],
-            protocol: detected,
-          );
-          log("Session #$_sessionId | Protocol auto-detected: $detected");
+        if (detected != null) {
+          if (_currentProfile != null && _currentProfile!.protocol != detected) {
+            log(
+              "Session #$_sessionId | Protocol MISMATCH: Profile was ${_currentProfile!.protocol}, Data is $detected. UPGRADING.",
+            );
+            _currentProfile = DeviceProfile(
+              name: "${_currentProfile!.name}_$detected",
+              writeUuids: _currentProfile!.writeUuids,
+              notifyUuids: _currentProfile!.notifyUuids,
+              protocol: detected,
+            );
+          } else if (_currentProfile == null) {
+            _currentProfile = DeviceProfile(
+              name: 'auto',
+              writeUuids: [
+                _writeCharacteristic?.uuid.toString().toLowerCase() ?? '',
+              ],
+              notifyUuids: [uuid],
+              protocol: detected,
+            );
+            log("Session #$_sessionId | Protocol auto-detected: $detected");
+          }
         }
       }
     });
@@ -411,5 +411,30 @@ class BleService {
     _connectionController.close();
     _dataController.close();
     _logController.close();
+  }
+
+  void forceProtocol(ProtocolType type) {
+    if (_currentProfile?.protocol == type) return;
+
+    log("Session #$_sessionId | FORCING Protocol Type: $type");
+    
+    // Try to find a matching profile for this specific protocol
+    final forcedProfile = DeviceProfileManager.getProfileForProtocol(type);
+    
+    if (forcedProfile != null) {
+      _currentProfile = DeviceProfile(
+        name: "forced_${forcedProfile.name}",
+        writeUuids: _currentProfile?.writeUuids ?? forcedProfile.writeUuids,
+        notifyUuids: _currentProfile?.notifyUuids ?? forcedProfile.notifyUuids,
+        protocol: type,
+      );
+    } else {
+       _currentProfile = DeviceProfile(
+        name: "forced_raw",
+        writeUuids: _currentProfile?.writeUuids ?? [],
+        notifyUuids: _currentProfile?.notifyUuids ?? [],
+        protocol: type,
+      );
+    }
   }
 }
