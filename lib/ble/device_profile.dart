@@ -39,17 +39,30 @@ class DeviceProfileManager {
   ];
 
   static DeviceProfile? findProfile(List<BluetoothService> services) {
-    for (final profile in profiles) {
-      for (final service in services) {
-        for (final characteristic in service.characteristics) {
-          final uuid = characteristic.uuid.toString().toLowerCase();
-          if (profile.writeUuids.contains(uuid)) {
-            return profile;
-          }
-        }
+    final discovered = <String>{};
+    for (final service in services) {
+      for (final characteristic in service.characteristics) {
+        discovered.add(characteristic.uuid.toString().toLowerCase());
       }
     }
-    return null;
+
+    DeviceProfile? bestProfile;
+    int bestScore = 0;
+
+    for (final profile in profiles) {
+      final writeMatches = profile.writeUuids.where(discovered.contains).length;
+      final notifyMatches = profile.notifyUuids.where(discovered.contains).length;
+
+      // Prioritize write match, then notify match.
+      final score = (writeMatches * 10) + notifyMatches;
+
+      if (score > bestScore && writeMatches > 0) {
+        bestScore = score;
+        bestProfile = profile;
+      }
+    }
+
+    return bestProfile;
   }
 
   static List<String> getAllWriteUuids() {

@@ -231,5 +231,6 @@ class BleService {
   void dispose() {
     _connectionController.close();
     _dataController.close();
+    _logController.close();
   }
 }
