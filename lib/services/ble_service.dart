@@ -86,7 +86,7 @@ class BleService {
         log("No profile detected, using default search");
       }
 
-      // Collect all known UUIDs for search
+      // Known UUIDs
       final knownWriteUuids = DeviceProfileManager.getAllWriteUuids();
       final knownNotifyUuids = DeviceProfileManager.getAllNotifyUuids();
 
@@ -97,18 +97,19 @@ class BleService {
 
           final uuid = char.uuid.toString().toLowerCase();
 
-          // Check if this is a write characteristic
+          // Write: ffe1, fff2, 00112433...
           if ((char.properties.write || char.properties.writeWithoutResponse) &&
               (knownWriteUuids.contains(uuid) ||
                   _writeCharacteristic == null)) {
             _writeCharacteristic = char;
-            log("  -> Write Char Found ($uuid)");
+            log("  -> Write Char ($uuid)");
           }
 
-          // Check if this is a notify characteristic
+          // Notify: ONLY from known notify UUIDs (ffe2, fff1, 00112333...)
+          // Skip ffe1 even if it has notify=true (it's used for write!)
           if ((char.properties.notify || char.properties.indicate) &&
-              (knownNotifyUuids.contains(uuid) ||
-                  _notifyCharacteristic == null)) {
+              knownNotifyUuids.contains(uuid) &&
+              _notifyCharacteristic == null) {
             _notifyCharacteristic = char;
             await char.setNotifyValue(true);
             char.lastValueStream.listen((value) {
@@ -118,7 +119,6 @@ class BleService {
               _dataController.add(value);
               log("RX: $hexStr");
 
-              // Auto-detect protocol from response if no profile matched
               if (_currentProfile == null && value.isNotEmpty) {
                 final detected = ProtocolHandler.detectProtocol(value);
                 _currentProfile = DeviceProfile(
@@ -132,7 +132,7 @@ class BleService {
                 log("Protocol auto-detected: $detected");
               }
             });
-            log("  -> Notify Char Found & Enabled ($uuid)");
+            log("  -> Notify Char ($uuid)");
           }
         }
       }

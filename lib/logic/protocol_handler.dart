@@ -97,25 +97,23 @@ class ProtocolHandler {
 
   /// Parses Protocol B Status Packet (starting with 0xA5)
   static DeviceStatus? parseStatusB(List<int> data) {
-    // Example: a5 00 13 60 25 28 05 05 f5 64 64 64 80 00 0d 05 05 00 0c 10 fa be 11
-    if (data.length < 23 || data[0] != 0xA5) return null;
+    // a5 00 13 60 25 28 05 05 25 19 64 64 80 0e 0d 05 05 00 0c 10 fa be 11
+    //       index: 0  1  2  3  4   5   6   7   8   9  10  11  12
+    if (data.length < 13 || data[0] != 0xA5) return null;
 
     try {
-      // Hypothesized mapping:
-      // Index 9: Level A (0-100)
-      // Index 10: Level B (0-100)
-      // Index 11: Level C (0-100)
-      // Index 12: Flags (0x80 = Power On?)
+      // Correct mapping from log analysis:
+      // data[4] = channel A level (0x25 = 37)
+      // data[5] = channel B level (0x28 = 40)
+      // data[10] = channel C level (0x64 = 100)
+      // data[12] = flags (0x80 = Power On)
 
-      int levelA = data[9];
-      int levelB = data[10];
-      int levelC = data[11];
+      int levelA = data[4];
+      int levelB = data[5];
+      int levelC = data[10];
       int flags = data[12];
 
       bool powerOn = (flags & 0x80) != 0;
-      // Other flags?
-      // 0x80 = 1000 0000.
-      // Maybe bit 0 is Fan? bit 1 is Ion?
 
       return DeviceStatus(
         levelA: levelA,
