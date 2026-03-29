@@ -32,6 +32,7 @@ class BleService {
   int _rxCounter = 0;
   DateTime? _lastWriteAt;
   static const Duration _minWriteInterval = Duration(milliseconds: 150);
+  StreamSubscription<BluetoothConnectionState>? _deviceStateSub;
 
   DeviceProfile? get currentProfile => _currentProfile;
 
@@ -67,6 +68,8 @@ class BleService {
       _writeCharacteristic = null;
       _notifyCharacteristic = null;
       _lastWriteAt = null;
+      await _deviceStateSub?.cancel();
+      _deviceStateSub = null;
       log(
         "Session #$_sessionId | Attempt #$_connectionAttempts | Connecting to ${device.remoteId}...",
       );
@@ -76,6 +79,11 @@ class BleService {
         license: License.free,
       );
       _connectedDevice = device;
+      _deviceStateSub = device.connectionState.listen((state) {
+        if (state == BluetoothConnectionState.disconnected) {
+          _handleDisconnectedByDevice();
+        }
+      });
       _connectionController.add(true);
       log("Session #$_sessionId | Connected. Discovering services...");
 
@@ -174,13 +182,27 @@ class BleService {
   }
 
   Future<void> disconnect() async {
+    await _deviceStateSub?.cancel();
+    _deviceStateSub = null;
     await _connectedDevice?.disconnect();
+    _handleDisconnectedByDevice();
+  }
+
+  void _handleDisconnectedByDevice() {
+    final wasConnected = _connectedDevice != null || _isChannelActive();
     _connectedDevice = null;
     _writeCharacteristic = null;
     _notifyCharacteristic = null;
     _currentProfile = null;
-    _connectionController.add(false);
-    log("Session #$_sessionId | Disconnected");
+    _lastWriteAt = null;
+    if (wasConnected) {
+      _connectionController.add(false);
+      log("Session #$_sessionId | Disconnected");
+    }
+  }
+
+  bool _isChannelActive() {
+    return _writeCharacteristic != null || _notifyCharacteristic != null;
   }
 
   Future<void> _subscribeToNotify(BluetoothCharacteristic char) async {
@@ -314,6 +336,7 @@ class BleService {
   }
 
   void dispose() {
+    _deviceStateSub?.cancel();
     _connectionController.close();
     _dataController.close();
     _logController.close();
