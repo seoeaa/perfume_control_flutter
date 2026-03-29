@@ -472,11 +472,11 @@ class BluetoothProvider with ChangeNotifier {
   Future<void> _runAutoProbe() async {
     addToLog("🚀 STARTING AUTO-PROBE for Research Board...");
     
-    final atCommands = ['AT', 'AT+NAME?', 'AT+VERSION', 'AT+ADDR?', 'AT+BAUD?', 'AT+MAC?'];
+    final atCommands = ['AT', 'ATE1', 'AT+GMR', 'AT+NAME?', 'AT+VERSION', 'AT+ADDR?', 'AT+BAUD?', 'AT+MAC?'];
     for (var cmd in atCommands) {
       if (!_isConnected) return;
       sendATCommand(cmd);
-      await Future.delayed(const Duration(milliseconds: 600));
+      await Future.delayed(const Duration(milliseconds: 1000));
     }
 
     addToLog("🔬 Probing Protocol C commands...");
@@ -485,7 +485,7 @@ class BluetoothProvider with ChangeNotifier {
       if (!_isConnected) return;
       addToLog("PROBE: Protocol C CMD 0x${i.toRadixString(16)}");
       _bleService.writeData(ProtocolHandler.buildProtocolC(i, [0x01]));
-      await Future.delayed(const Duration(milliseconds: 600));
+      await Future.delayed(const Duration(milliseconds: 1000));
     }
 
     addToLog("✅ AUTO-PROBE FINISHED. Check logs above for responses.");

@@ -181,9 +181,17 @@ class BleService {
             _notifyCharacteristic = candidate;
             await _subscribeToNotify(candidate);
             notifySubscribed = true;
-            log("Session #$_sessionId |   -> Notify Char ($notifyUuid)");
+            log("Session #$_sessionId |   -> Main Notify Char ($notifyUuid)");
             break;
           }
+        }
+        
+        // Strategy: also listen to ALL other notify chars just in case (for unknown devices)
+        for (var char in charsByUuid.values) {
+           if ((char.properties.notify || char.properties.indicate) && char.uuid != _notifyCharacteristic?.uuid) {
+             await _subscribeToNotify(char);
+             log("Session #$_sessionId |   -> Extra Notify Char (${char.uuid})");
+           }
         }
       }
 
@@ -246,8 +254,15 @@ class BleService {
 
       if (changed) {
         final hexStr = _hex(value);
+        String? asciiStr;
+        try {
+          if (value.every((b) => (b >= 32 && b <= 126) || b == 10 || b == 13)) {
+            asciiStr = String.fromCharCodes(value).replaceAll('\r', '\\r').replaceAll('\n', '\\n');
+          }
+        } catch (_) {}
+
         log(
-          "Session #$_sessionId | RX #$_rxCounter | from $uuid | len=${value.length} | $hexStr",
+          "Session #$_sessionId | RX #$_rxCounter | from $uuid | len=${value.length} | $hexStr ${asciiStr != null ? ' | ASCII: \"$asciiStr\"' : ''}",
         );
       }
 
