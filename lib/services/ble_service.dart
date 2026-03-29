@@ -30,6 +30,8 @@ class BleService {
   int _connectionAttempts = 0;
   int _txCounter = 0;
   int _rxCounter = 0;
+  DateTime? _lastWriteAt;
+  static const Duration _minWriteInterval = Duration(milliseconds: 150);
 
   DeviceProfile? get currentProfile => _currentProfile;
 
@@ -62,6 +64,9 @@ class BleService {
       _sessionId = DateTime.now().millisecondsSinceEpoch;
       _txCounter = 0;
       _rxCounter = 0;
+      _writeCharacteristic = null;
+      _notifyCharacteristic = null;
+      _lastWriteAt = null;
       log(
         "Session #$_sessionId | Attempt #$_connectionAttempts | Connecting to ${device.remoteId}...",
       );
@@ -92,6 +97,8 @@ class BleService {
 
       // Auto-detect profile
       _currentProfile = DeviceProfileManager.findProfile(services);
+      var notifySubscribed = false;
+
       if (_currentProfile != null) {
         log(
           "Session #$_sessionId | Profile detected: ${_currentProfile!.name} (protocol: ${_currentProfile!.protocol})",
@@ -100,9 +107,11 @@ class BleService {
         log("Session #$_sessionId | No profile detected, using default search");
       }
 
-      // Known UUIDs
-      final knownWriteUuids = DeviceProfileManager.getAllWriteUuids();
-      final knownNotifyUuids = DeviceProfileManager.getAllNotifyUuids();
+      // Build a UUID->Characteristic lookup first, then pick channels
+      // by profile priority (if detected).
+      final charsByUuid = <String, BluetoothCharacteristic>{};
+      BluetoothCharacteristic? fallbackWrite;
+      BluetoothCharacteristic? fallbackNotify;
 
       for (var service in services) {
         log("Session #$_sessionId | Service: ${service.uuid}");
@@ -112,49 +121,49 @@ class BleService {
           );
 
           final uuid = char.uuid.toString().toLowerCase();
+          charsByUuid[uuid] = char;
 
-          // Write: ffe1, fff2, 00112433...
           if ((char.properties.write || char.properties.writeWithoutResponse) &&
-              (knownWriteUuids.contains(uuid) ||
-                  _writeCharacteristic == null)) {
-            _writeCharacteristic = char;
-            log("Session #$_sessionId |   -> Write Char ($uuid)");
+              fallbackWrite == null) {
+            fallbackWrite = char;
           }
-
-          // Notify: ONLY from known notify UUIDs (ffe2, fff1, 00112333...)
-          // Skip ffe1 even if it has notify=true (it's used for write!)
           if ((char.properties.notify || char.properties.indicate) &&
-              knownNotifyUuids.contains(uuid) &&
-              _notifyCharacteristic == null) {
-            _notifyCharacteristic = char;
-            await char.setNotifyValue(true);
-            char.lastValueStream.listen((value) {
-              _rxCounter += 1;
-              final hexStr = _hex(value);
-              _dataController.add(value);
-              log(
-                "Session #$_sessionId | RX #$_rxCounter | from $uuid | len=${value.length} | $hexStr",
-              );
-
-              if (_currentProfile == null && value.isNotEmpty) {
-                final detected = ProtocolHandler.detectProtocol(value);
-                _currentProfile = DeviceProfile(
-                  name: 'auto',
-                  writeUuids: [
-                    _writeCharacteristic?.uuid.toString().toLowerCase() ?? '',
-                  ],
-                  notifyUuids: [uuid],
-                  protocol: detected,
-                );
-                log(
-                  "Session #$_sessionId | Protocol auto-detected: $detected",
-                );
-              }
-            });
-            log("Session #$_sessionId |   -> Notify Char ($uuid)");
+              fallbackNotify == null) {
+            fallbackNotify = char;
           }
         }
       }
+
+      if (_currentProfile != null) {
+        for (final writeUuid in _currentProfile!.writeUuids) {
+          final candidate = charsByUuid[writeUuid];
+          if (candidate != null &&
+              (candidate.properties.write ||
+                  candidate.properties.writeWithoutResponse)) {
+            _writeCharacteristic = candidate;
+            log("Session #$_sessionId |   -> Write Char ($writeUuid)");
+            break;
+          }
+        }
+        for (final notifyUuid in _currentProfile!.notifyUuids) {
+          final candidate = charsByUuid[notifyUuid];
+          if (candidate != null &&
+              (candidate.properties.notify || candidate.properties.indicate)) {
+            _notifyCharacteristic = candidate;
+            await _subscribeToNotify(candidate);
+            notifySubscribed = true;
+            log("Session #$_sessionId |   -> Notify Char ($notifyUuid)");
+            break;
+          }
+        }
+      }
+
+      _writeCharacteristic ??= fallbackWrite;
+      _notifyCharacteristic ??= fallbackNotify;
+      if (_notifyCharacteristic != null && !notifySubscribed) {
+        await _subscribeToNotify(_notifyCharacteristic!);
+      }
+
       log(
         "Session #$_sessionId | Active channels | write=${_writeCharacteristic?.uuid} notify=${_notifyCharacteristic?.uuid}",
       );
@@ -174,12 +183,58 @@ class BleService {
     log("Session #$_sessionId | Disconnected");
   }
 
+  Future<void> _subscribeToNotify(BluetoothCharacteristic char) async {
+    if (!char.isNotifying) {
+      await char.setNotifyValue(true);
+    }
+    final uuid = char.uuid.toString().toLowerCase();
+    char.lastValueStream.listen((value) {
+      _rxCounter += 1;
+      final hexStr = _hex(value);
+      _dataController.add(value);
+      log(
+        "Session #$_sessionId | RX #$_rxCounter | from $uuid | len=${value.length} | $hexStr",
+      );
+
+      if (_currentProfile == null && value.isNotEmpty) {
+        final detected = ProtocolHandler.detectProtocol(value);
+        _currentProfile = DeviceProfile(
+          name: 'auto',
+          writeUuids: [_writeCharacteristic?.uuid.toString().toLowerCase() ?? ''],
+          notifyUuids: [uuid],
+          protocol: detected,
+        );
+        log("Session #$_sessionId | Protocol auto-detected: $detected");
+      }
+    });
+  }
+
+  Future<void> _writeWithRateLimit(
+    BluetoothCharacteristic characteristic,
+    List<int> data,
+  ) async {
+    final now = DateTime.now();
+    if (_lastWriteAt != null) {
+      final elapsed = now.difference(_lastWriteAt!);
+      if (elapsed < _minWriteInterval) {
+        final wait = _minWriteInterval - elapsed;
+        log(
+          "Session #$_sessionId | TX pacing | waiting ${wait.inMilliseconds}ms before write",
+        );
+        await Future.delayed(wait);
+      }
+    }
+    final withoutResponse = characteristic.properties.writeWithoutResponse;
+    await characteristic.write(data, withoutResponse: withoutResponse);
+    _lastWriteAt = DateTime.now();
+  }
+
   Future<void> writeData(List<int> data) async {
     if (_writeCharacteristic != null) {
       _txCounter += 1;
+      await _writeWithRateLimit(_writeCharacteristic!, data);
       final withoutResponse =
           _writeCharacteristic!.properties.writeWithoutResponse;
-      await _writeCharacteristic!.write(data, withoutResponse: withoutResponse);
       log(
         "Session #$_sessionId | TX #$_txCounter | len=${data.length} | withoutResponse=$withoutResponse | ${_hex(data)}",
       );
@@ -193,9 +248,9 @@ class BleService {
   Future<void> writeDataByProfile(List<int> data) async {
     if (_writeCharacteristic == null || _currentProfile == null) return;
 
+    await _writeWithRateLimit(_writeCharacteristic!, data);
     final withoutResponse =
         _writeCharacteristic!.properties.writeWithoutResponse;
-    await _writeCharacteristic!.write(data, withoutResponse: withoutResponse);
     _txCounter += 1;
     log(
       "Session #$_sessionId | TX #$_txCounter [${_currentProfile!.name}] | len=${data.length} | withoutResponse=$withoutResponse | ${_hex(data)}",
@@ -223,7 +278,7 @@ class BleService {
 
     final withoutResponse =
         _writeCharacteristic!.properties.writeWithoutResponse;
-    await _writeCharacteristic!.write(packet, withoutResponse: withoutResponse);
+    await _writeWithRateLimit(_writeCharacteristic!, packet);
     _txCounter += 1;
     log(
       "Session #$_sessionId | TX #$_txCounter | Start command (${_currentProfile!.protocol}) | ${_hex(packet)}",
@@ -251,7 +306,7 @@ class BleService {
 
     final withoutResponse =
         _writeCharacteristic!.properties.writeWithoutResponse;
-    await _writeCharacteristic!.write(packet, withoutResponse: withoutResponse);
+    await _writeWithRateLimit(_writeCharacteristic!, packet);
     _txCounter += 1;
     log(
       "Session #$_sessionId | TX #$_txCounter | Stop command (${_currentProfile!.protocol}) | ${_hex(packet)}",

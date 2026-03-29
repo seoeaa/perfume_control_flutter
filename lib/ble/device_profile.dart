@@ -23,7 +23,7 @@ class DeviceProfileManager {
       // Some classic FFE boards expose two writable chars (ffe1 and ffe3).
       // Prefer ffe3 when available because commands are accepted there on
       // devices that only stream status on ffe2.
-      writeUuids: ['ffe1', 'ffe3'],
+      writeUuids: ['ffe3', 'ffe1'],
       notifyUuids: ['ffe2'],
       protocol: ProtocolType.a,
     ),
