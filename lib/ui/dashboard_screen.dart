@@ -1,7 +1,10 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import '../providers/bluetooth_provider.dart';
 import 'widgets/glass_card.dart';
 import 'support_screen.dart';
@@ -639,6 +642,35 @@ class DashboardScreen extends StatelessWidget {
                           ),
                           Row(
                             children: [
+                              IconButton(
+                                icon: const Icon(Icons.share, color: Colors.white54),
+                                onPressed: () async {
+                                  final text = provider.exportLogsToString();
+                                  if (text.isEmpty) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Логи пусты')),
+                                    );
+                                    return;
+                                  }
+
+                                  try {
+                                    final tempDir = await getTemporaryDirectory();
+                                    final file = File('${tempDir.path}/perfume_logs.txt');
+                                    await file.writeAsString(text);
+                                    
+                                    await Share.shareXFiles(
+                                      [XFile(file.path)],
+                                      text: 'Логи управления ароматами',
+                                    );
+                                  } catch (e) {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Ошибка при отправке: $e')),
+                                      );
+                                    }
+                                  }
+                                },
+                              ),
                               IconButton(
                                 icon: const Icon(Icons.copy, color: Colors.white54),
                                 onPressed: () {

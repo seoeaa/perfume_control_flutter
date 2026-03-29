@@ -77,6 +77,10 @@ class BluetoothProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  String exportLogsToString() {
+    return _logs.join('\n');
+  }
+
   String _hex(List<int> bytes) =>
       bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
 
@@ -455,7 +459,11 @@ class BluetoothProvider with ChangeNotifier {
     } else if (protocol == ProtocolType.b) {
       _bleService.writeData(ProtocolHandler.setPowerB(_isPowerOn));
     } else if (protocol == ProtocolType.c) {
-      if (_isPowerOn) _bleService.sendStartCommand(); else _bleService.sendStopCommand();
+      if (_isPowerOn) {
+        _bleService.sendStartCommand();
+      } else {
+        _bleService.sendStopCommand();
+      }
     }
     await Future.delayed(const Duration(milliseconds: 300));
 
