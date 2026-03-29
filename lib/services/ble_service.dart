@@ -268,6 +268,18 @@ class BleService {
       }
 
       if (value.isNotEmpty) {
+        // --- AT Command Auto-Responder ---
+        // If the MCU is stuck trying to configure the BLE module, it will keep sending ATE0 etc.
+        // It ignores all binary Protocol C commands until it gets an "OK".
+        // We trick it by replying "OK\r\n" so it exits its initialization loop.
+        if (value.length >= 2 && value[0] == 0x41 && value[1] == 0x54) { // 'A', 'T'
+          log("Session #$_sessionId | Auto-replying to AT command to un-stick MCU");
+          if (_writeCharacteristic != null) {
+            _writeToCharacteristic(_writeCharacteristic!, [0x4F, 0x4B, 0x0D, 0x0A], label: "Auto-ACK AT");
+          }
+        }
+        // ---------------------------------
+
         final detected = ProtocolHandler.detectProtocol(value);
         if (detected != null) {
           if (_currentProfile != null && _currentProfile!.protocol != detected) {
