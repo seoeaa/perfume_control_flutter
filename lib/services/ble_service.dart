@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../ble/device_profile.dart';
@@ -34,6 +35,7 @@ class BleService {
   DateTime? _lastWriteAt;
   static const Duration _minWriteInterval = Duration(milliseconds: 150);
   StreamSubscription<BluetoothConnectionState>? _deviceStateSub;
+  List<int>? _lastRxValue;
 
   DeviceProfile? get currentProfile => _currentProfile;
 
@@ -41,12 +43,14 @@ class BleService {
   Stream<bool> get connectionStatus => _connectionController.stream;
 
   final _dataController = StreamController<List<int>>.broadcast();
+  Stream<bool> get dataStreamIsActive => Stream.value(true); // Placeholder
   Stream<List<int>> get dataStream => _dataController.stream;
 
   final _logController = StreamController<String>.broadcast();
   Stream<String> get logStream => _logController.stream;
 
   void log(String message) {
+    debugPrint("BLE: $message");
     _logController.add(message);
   }
 
@@ -189,6 +193,9 @@ class BleService {
         await _subscribeToNotify(_notifyCharacteristic!);
       }
 
+      // FINAL SAFETY DELAY
+      await Future.delayed(const Duration(milliseconds: 300));
+
       log(
         "Session #$_sessionId | Active channels | write=${_writeCharacteristic?.uuid} mirror=${_mirrorWriteCharacteristic?.uuid} notify=${_notifyCharacteristic?.uuid}",
       );
@@ -230,21 +237,43 @@ class BleService {
     final uuid = char.uuid.toString().toLowerCase();
     char.lastValueStream.listen((value) {
       _rxCounter += 1;
-      final hexStr = _hex(value);
-      _dataController.add(value);
-      log(
-        "Session #$_sessionId | RX #$_rxCounter | from $uuid | len=${value.length} | $hexStr",
-      );
+      
+      bool changed = _lastRxValue == null || !listEquals(_lastRxValue, value);
+      _lastRxValue = List<int>.from(value);
 
-      if (_currentProfile == null && value.isNotEmpty) {
-        final detected = ProtocolHandler.detectProtocol(value);
-        _currentProfile = DeviceProfile(
-          name: 'auto',
-          writeUuids: [_writeCharacteristic?.uuid.toString().toLowerCase() ?? ''],
-          notifyUuids: [uuid],
-          protocol: detected,
+      // ALWAYS add to controller so UI stays up to date
+      _dataController.add(value);
+
+      if (changed) {
+        final hexStr = _hex(value);
+        log(
+          "Session #$_sessionId | RX #$_rxCounter | from $uuid | len=${value.length} | $hexStr",
         );
-        log("Session #$_sessionId | Protocol auto-detected: $detected");
+      }
+
+      if (value.isNotEmpty) {
+        final detected = ProtocolHandler.detectProtocol(value);
+        if (_currentProfile != null && _currentProfile!.protocol != detected) {
+          log(
+            "Session #$_sessionId | Protocol MISMATCH: Profile was ${_currentProfile!.protocol}, Data is $detected. UPGRADING.",
+          );
+          _currentProfile = DeviceProfile(
+            name: "${_currentProfile!.name}_$detected",
+            writeUuids: _currentProfile!.writeUuids,
+            notifyUuids: _currentProfile!.notifyUuids,
+            protocol: detected,
+          );
+        } else if (_currentProfile == null) {
+          _currentProfile = DeviceProfile(
+            name: 'auto',
+            writeUuids: [
+              _writeCharacteristic?.uuid.toString().toLowerCase() ?? '',
+            ],
+            notifyUuids: [uuid],
+            protocol: detected,
+          );
+          log("Session #$_sessionId | Protocol auto-detected: $detected");
+        }
       }
     });
   }
@@ -258,10 +287,9 @@ class BleService {
       final elapsed = now.difference(_lastWriteAt!);
       if (elapsed < _minWriteInterval) {
         final wait = _minWriteInterval - elapsed;
-        log(
-          "Session #$_sessionId | TX pacing | waiting ${wait.inMilliseconds}ms before write",
-        );
-        await Future.delayed(wait);
+        if (wait.inMilliseconds > 10) {
+          await Future.delayed(wait);
+        }
       }
     }
     final withoutResponse = characteristic.properties.writeWithoutResponse;
@@ -274,11 +302,15 @@ class BleService {
     List<int> data, {
     required String label,
   }) async {
-    await _writeWithRateLimit(characteristic, data);
-    final withoutResponse = characteristic.properties.writeWithoutResponse;
-    log(
-      "Session #$_sessionId | $label | len=${data.length} | withoutResponse=$withoutResponse | ${_hex(data)}",
-    );
+    try {
+      await _writeWithRateLimit(characteristic, data);
+      final withoutResponse = characteristic.properties.writeWithoutResponse;
+      log(
+        "Session #$_sessionId | $label | len=${data.length} | withoutResponse=$withoutResponse | ${_hex(data)}",
+      );
+    } catch (e) {
+      log("Session #$_sessionId | $label ERROR: $e");
+    }
   }
 
   Future<void> writeData(List<int> data) async {
@@ -327,10 +359,7 @@ class BleService {
   }
 
   Future<void> sendStartCommand() async {
-    if (_writeCharacteristic == null || _currentProfile == null) {
-      log("Cannot send start: no characteristic or profile");
-      return;
-    }
+    if (_writeCharacteristic == null || _currentProfile == null) return;
 
     Uint8List packet;
     switch (_currentProfile!.protocol) {
@@ -338,7 +367,7 @@ class BleService {
         packet = ProtocolHandler.startProtocolC();
         break;
       case ProtocolType.b:
-        packet = ProtocolHandler.startProtocolC();
+        packet = ProtocolHandler.startProtocolC(); // Placeholder for B
         break;
       case ProtocolType.c:
         packet = ProtocolHandler.startProtocolC();
@@ -347,25 +376,14 @@ class BleService {
 
     _txCounter += 1;
     final txId = _txCounter;
-    await _writeToCharacteristic(
-      _writeCharacteristic!,
-      packet,
-      label: "TX #$txId | Start command (${_currentProfile!.protocol})",
-    );
+    await _writeToCharacteristic(_writeCharacteristic!, packet, label: "TX #$txId | Start");
     if (_mirrorWriteCharacteristic != null) {
-      await _writeToCharacteristic(
-        _mirrorWriteCharacteristic!,
-        packet,
-        label: "TX #$txId mirror | Start command (${_currentProfile!.protocol})",
-      );
+      await _writeToCharacteristic(_mirrorWriteCharacteristic!, packet, label: "TX #$txId mirror | Start");
     }
   }
 
   Future<void> sendStopCommand() async {
-    if (_writeCharacteristic == null || _currentProfile == null) {
-      log("Cannot send stop: no characteristic or profile");
-      return;
-    }
+    if (_writeCharacteristic == null || _currentProfile == null) return;
 
     Uint8List packet;
     switch (_currentProfile!.protocol) {
@@ -373,7 +391,7 @@ class BleService {
         packet = ProtocolHandler.stopProtocolC();
         break;
       case ProtocolType.b:
-        packet = ProtocolHandler.stopProtocolC();
+        packet = ProtocolHandler.stopProtocolC(); // Placeholder
         break;
       case ProtocolType.c:
         packet = ProtocolHandler.stopProtocolC();
@@ -382,17 +400,9 @@ class BleService {
 
     _txCounter += 1;
     final txId = _txCounter;
-    await _writeToCharacteristic(
-      _writeCharacteristic!,
-      packet,
-      label: "TX #$txId | Stop command (${_currentProfile!.protocol})",
-    );
+    await _writeToCharacteristic(_writeCharacteristic!, packet, label: "TX #$txId | Stop");
     if (_mirrorWriteCharacteristic != null) {
-      await _writeToCharacteristic(
-        _mirrorWriteCharacteristic!,
-        packet,
-        label: "TX #$txId mirror | Stop command (${_currentProfile!.protocol})",
-      );
+      await _writeToCharacteristic(_mirrorWriteCharacteristic!, packet, label: "TX #$txId mirror | Stop");
     }
   }
 

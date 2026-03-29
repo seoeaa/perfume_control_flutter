@@ -95,30 +95,50 @@ class ProtocolHandler {
     return buildProtocolB(data: [0x03, channel, level]);
   }
 
-  /// Parses Protocol B Status Packet (starting with 0xA5)
+  /// Set Power for Protocol B (ON=1, OFF=0)
+  static Uint8List setPowerB(bool on) {
+    return buildProtocolB(data: [0x02, on ? 1 : 0]);
+  }
+
   static DeviceStatus? parseStatusB(List<int> data) {
-    // a5 00 13 60 25 28 05 05 25 19 64 64 80 0e 0d 05 05 00 0c 10 fa be 11
-    //       index: 0  1  2  3  4   5   6   7   8   9  10  11  12
-    if (data.length < 13 || data[0] != 0xA5) return null;
+    if (data.isEmpty) return null;
+
+    int offsetIntensity = -1;
+
+    // Pattern A: Find 05 05 marker, intensity levels follow 2 bytes after it
+    // Based on logs: ... 05 05 f5 19 [64 64 80] ...
+    for (int i = 0; i < data.length - 6; i++) {
+      if (data[i] == 0x05 && data[i + 1] == 0x05) {
+        offsetIntensity = i + 4;
+        break;
+      }
+    }
+
+    // Pattern B: If no marker but starts with A5
+    if (offsetIntensity == -1 && data[0] == 0xA5 && data.length >= 13) {
+      offsetIntensity = 10;
+    }
+
+    if (offsetIntensity == -1 || data.length < offsetIntensity + 3) return null;
 
     try {
-      // Correct mapping from log analysis:
-      // data[4] = channel A level (0x25 = 37)
-      // data[5] = channel B level (0x28 = 40)
-      // data[10] = channel C level (0x64 = 100)
-      // data[12] = flags (0x80 = Power On)
+      // In Protocol B, data[4], [5], [6] are often the A, B, C intensity levels
+      int levelA = data.length > 4 ? data[4] : 0;
+      int levelB = data.length > 5 ? data[5] : 0;
+      int levelC = data.length > 6 ? data[6] : 0;
 
-      int levelA = data[4];
-      int levelB = data[5];
-      int levelC = data[10];
-      int flags = data[12];
+      int altLevelA = data[offsetIntensity];
+      int altLevelB = data[offsetIntensity + 1];
+      // Alt level C (often fluid %) is found further down, e.g. offset + 6
+      int altLevelC = data.length > offsetIntensity + 6 ? data[offsetIntensity + 6] : 0;
 
+      int flags = data[offsetIntensity + 2];
       bool powerOn = (flags & 0x80) != 0;
 
       return DeviceStatus(
-        levelA: levelA,
-        levelB: levelB,
-        levelC: levelC,
+        levelA: levelA > 0 && levelA <= 100 ? levelA : altLevelA,
+        levelB: levelB > 0 && levelB <= 100 ? levelB : altLevelB,
+        levelC: levelC > 0 && levelC <= 100 ? levelC : altLevelC,
         flags: flags,
         powerOn: powerOn,
         rawBytes: List<int>.from(data),
@@ -181,16 +201,22 @@ class ProtocolHandler {
   static ProtocolType detectProtocol(List<int> response) {
     if (response.isEmpty) return ProtocolType.a;
 
-    switch (response.first) {
-      case 0x7E:
-        return ProtocolType.a;
-      case 0x55:
-        return ProtocolType.b;
-      case 0xAA:
-        return ProtocolType.c;
-      default:
-        return ProtocolType.a;
+    // Check for Protocol B (0xA5 header or 0x05, 0x05 sequence in status)
+    if (response.first == 0xA5 || 
+        response.first == 0x55 ||
+        (response.length > 1 && response[0] == 0x05 && response[1] == 0x05)) {
+      return ProtocolType.b;
     }
+
+    if (response.first == 0x7E) {
+      return ProtocolType.a;
+    }
+
+    if (response.first == 0xAA) {
+      return ProtocolType.c;
+    }
+
+    return ProtocolType.a;
   }
 
   // ========== Protocol C Commands ==========

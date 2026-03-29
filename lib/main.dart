@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'providers/bluetooth_provider.dart';
 import 'ui/dashboard_screen.dart';
 import 'services/update_service.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  // Disable FBP logging to reduce noise in the console
+  FlutterBluePlus.setLogLevel(LogLevel.none);
+  
   runApp(
     MultiProvider(
       providers: [ChangeNotifierProvider(create: (_) => BluetoothProvider())],
@@ -15,6 +20,7 @@ void main() {
 }
 
 class PerfumeControlApp extends StatelessWidget {
+  static final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
   const PerfumeControlApp({super.key});
 
   @override
@@ -32,25 +38,45 @@ class PerfumeControlApp extends StatelessWidget {
         ),
       ),
       home: const DashboardScreen(),
+      navigatorKey: navigatorKey,
       builder: (context, child) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _checkForUpdate(context);
-        });
-        return child!;
+        return _AppUpdateWrapper(child: child!);
       },
     );
   }
+}
 
-  void _checkForUpdate(BuildContext context) async {
+class _AppUpdateWrapper extends StatefulWidget {
+  final Widget child;
+  const _AppUpdateWrapper({required this.child});
+
+  @override
+  State<_AppUpdateWrapper> createState() => _AppUpdateWrapperState();
+}
+
+class _AppUpdateWrapperState extends State<_AppUpdateWrapper> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkForUpdate();
+    });
+  }
+
+  void _checkForUpdate() async {
     final info = await UpdateService.checkForUpdate();
-    if (info.hasUpdate && context.mounted) {
-      showUpdateDialog(context, info);
+    if (info.hasUpdate && mounted) {
+      _showUpdateDialog(info);
     }
   }
 
-  void showUpdateDialog(BuildContext context, UpdateInfo info) {
+  void _showUpdateDialog(UpdateInfo info) {
+    // Use the global navigator key to get the correct context for showDialog
+    final navContext = PerfumeControlApp.navigatorKey.currentContext;
+    if (navContext == null) return;
+
     showDialog(
-      context: context,
+      context: navContext,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         title: const Text('Обновление'),
@@ -73,4 +99,7 @@ class PerfumeControlApp extends StatelessWidget {
       ),
     );
   }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }

@@ -15,6 +15,7 @@ class BluetoothProvider with ChangeNotifier {
 
   // Independent levels (Intensity) for A, B, C (0: Off, 1: Light, 2: Fresh, 3: Rich)
   final Map<int, int> _intensities = {0: 1, 1: 0, 2: 0};
+  bool _isManualOverride = false;
 
   // Fluid Levels (0-100%)
   final Map<int, int> _fluidLevels = {0: 0, 1: 0, 2: 0};
@@ -40,7 +41,9 @@ class BluetoothProvider with ChangeNotifier {
         .last
         .split('.')
         .first;
-    _logs.add("[$timestamp] $message");
+    final logMsg = "[$timestamp] $message";
+    debugPrint("UI: $logMsg");
+    _logs.add(logMsg);
     notifyListeners();
   }
 
@@ -169,22 +172,31 @@ class BluetoothProvider with ChangeNotifier {
     _bleService.dataStream.listen((data) {
       if (data.isEmpty) return;
 
-      // Basic parsing logic
+      final profile = _bleService.currentProfile;
+      
       try {
-        if (data[0] == 0xA5) {
+        // If profile is Protocol B or we see patterns of B
+        if (profile?.protocol == ProtocolType.b || data[0] == 0xA5 || (data.length > 1 && data[0] == 0x05 && data[1] == 0x05)) {
           final status = ProtocolHandler.parseStatusB(data);
           if (status != null) {
-            addToLog("Parsed: $status");
             _logStatusDiff(status);
             _fluidLevels[0] = status.levelA;
             _fluidLevels[1] = status.levelB;
             _fluidLevels[2] = status.levelC;
-            _isPowerOn = status.powerOn;
-            // TODO: Ion/Fragrance flags if we find them
+            
+            if (!_isManualOverride) {
+              _isPowerOn = status.powerOn;
+              // If status levels are small (0-3), they might be intensities
+              if (status.levelA <= 3) _intensities[0] = status.levelA;
+              if (status.levelB <= 3) _intensities[1] = status.levelB;
+              if (status.levelC <= 3) _intensities[2] = status.levelC;
+            }
             notifyListeners();
           }
-        } else if (data[0] == 0x7E) {
-          // Protocol A
+        } 
+        
+        // Protocol A check (must have 7E header)
+        if (data[0] == 0x7E) {
           final cmd = ProtocolHandler.parseProtocolA(data);
           if (cmd != null) {
             addToLog("RX Cmd: $cmd");
@@ -192,38 +204,13 @@ class BluetoothProvider with ChangeNotifier {
             if (cmd.param1 == 6) _intensities[1] = cmd.param2;
             if (cmd.param1 == 7) _intensities[2] = cmd.param2;
 
-            if (cmd.param1 == 2) {
-              // Ion or Fragrance
-              // We need to confirm which is which.
-              // Based on setFragranceSwitchA: data: [0x02, 0x01, on ? 1 : 2]
-              // Based on setIonSwitchA: data: [0x02, 0x02, on ? 1 : 2]
-              // But wait, parseProtocolA returns param1 as data[3] and param2 as data[4]
-              // In setFragranceSwitchA: 0x7E 06 02 01 [1/2]
-              // In setIonSwitchA: 0x7E 06 02 02 [1/2]
-              // So if param1 (data[3]) is 1 -> Fragrance
-              // If param1 (data[3]) is 2 -> Ion
-
-              // However, earlier logs showed:
-              // RX: 7e 06 02 07 03 -> Channel C (7), Level 3
-              // This fits: param1=7, param2=3.
-
-              // Let's refine the logic:
-            }
-
             if (cmd.param1 == 1) {
-              // Fragrance Master Switch
               _fragranceEnabled = (cmd.param2 == 1);
             }
             if (cmd.param1 == 2) {
-              // Ion Switch
               _ionEnabled = (cmd.param2 == 1);
             }
-
             notifyListeners();
-          } else {
-            addToLog(
-              "RX Protocol A: ${data.map((e) => e.toRadixString(16)).join(' ')}",
-            );
           }
         }
       } catch (e) {
@@ -268,6 +255,9 @@ class BluetoothProvider with ChangeNotifier {
 
   void togglePower() {
     _isPowerOn = !_isPowerOn;
+    _isManualOverride = true;
+    Future.delayed(const Duration(seconds: 2), () => _isManualOverride = false);
+    
     final profile = _bleService.currentProfile;
     addToLog(
       "UI Action: togglePower -> $_isPowerOn (profile=${profile?.name}, protocol=${profile?.protocol})",
@@ -282,7 +272,7 @@ class BluetoothProvider with ChangeNotifier {
           break;
         case ProtocolType.b:
           _bleService.writeData(
-            ProtocolHandler.setFragranceSwitchA(_isPowerOn),
+            ProtocolHandler.setPowerB(_isPowerOn),
           );
           break;
         case ProtocolType.c:
@@ -301,15 +291,22 @@ class BluetoothProvider with ChangeNotifier {
 
   void toggleIon() {
     _ionEnabled = !_ionEnabled;
+    _isManualOverride = true;
+    Future.delayed(const Duration(seconds: 2), () => _isManualOverride = false);
+
     final profile = _bleService.currentProfile;
     addToLog(
       "UI Action: toggleIon -> $_ionEnabled (profile=${profile?.name}, protocol=${profile?.protocol})",
     );
 
-    if (profile != null &&
-        (profile.protocol == ProtocolType.a ||
-            profile.protocol == ProtocolType.b)) {
-      _bleService.writeData(ProtocolHandler.setIonSwitchA(_ionEnabled));
+    if (profile != null) {
+      if (profile.protocol == ProtocolType.a) {
+        _bleService.writeData(ProtocolHandler.setIonSwitchA(_ionEnabled));
+      } else if (profile.protocol == ProtocolType.b) {
+        _bleService.writeData(
+          ProtocolHandler.buildProtocolB(data: [0x05, _ionEnabled ? 1 : 0]),
+        );
+      }
     }
     notifyListeners();
   }
@@ -321,12 +318,14 @@ class BluetoothProvider with ChangeNotifier {
       "UI Action: toggleFragrance -> $_fragranceEnabled (profile=${profile?.name}, protocol=${profile?.protocol})",
     );
 
-    if (profile != null &&
-        (profile.protocol == ProtocolType.a ||
-            profile.protocol == ProtocolType.b)) {
-      _bleService.writeData(
-        ProtocolHandler.setFragranceSwitchA(_fragranceEnabled),
-      );
+    if (profile != null) {
+      if (profile.protocol == ProtocolType.a) {
+        _bleService.writeData(
+          ProtocolHandler.setFragranceSwitchA(_fragranceEnabled),
+        );
+      } else if (profile.protocol == ProtocolType.b) {
+        _bleService.writeData(ProtocolHandler.setPowerB(_fragranceEnabled));
+      }
     }
     notifyListeners();
   }
