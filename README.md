@@ -1,10 +1,14 @@
 # LI Perfume
 
 <p align="center">
-  <img src="assets/logo.jpg" width="128" alt="Logo">
+  <img src="assets/logo.png" width="128" alt="Logo">
 </p>
 
 Приложение для управления парфюмерными системами автомобилей **Li Auto (Lixiang)** через Bluetooth.
+
+<p align="center">
+  <img src="assets/screen.jpg" width="280" alt="Screenshot">
+</p>
 
 ## Основные возможности
 - **Управление тремя ароматами**: Независимая настройка каналов (Аромат A, B, C).
