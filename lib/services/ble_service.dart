@@ -1,24 +1,33 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
+import '../ble/device_profile.dart';
+import '../logic/protocol_handler.dart';
 
 class BleService {
   static const String serviceUuid = "ffe0";
-  
+
   Future<bool> requestPermissions() async {
     Map<Permission, PermissionStatus> statuses = await [
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
       Permission.location,
     ].request();
-    
+
     return statuses.values.every((status) => status.isGranted);
   }
+
   static const String writeUuid = "ffe1";
   static const String notifyUuid = "ffe1";
 
   BluetoothDevice? _connectedDevice;
   BluetoothCharacteristic? _writeCharacteristic;
+  BluetoothCharacteristic? _notifyCharacteristic;
+  DeviceProfile? _currentProfile;
+  List<BluetoothService> _services = [];
+
+  DeviceProfile? get currentProfile => _currentProfile;
 
   final _connectionController = StreamController<bool>.broadcast();
   Stream<bool> get connectionStatus => _connectionController.stream;
@@ -42,10 +51,11 @@ class BleService {
   Future<void> establishConnection(BluetoothDevice device) async {
     try {
       log("Connecting to ${device.remoteId}...");
-      // The error indicated 'license' is required. Using dynamic cast as seen in previous working version if needed, 
-      // but 'device.connect' should work if I provide the named parameter.
-      // It seems I am using a version that requires it.
-      await (device as dynamic).connect(autoConnect: false, mtu: null, license: License.free); 
+      await (device as dynamic).connect(
+        autoConnect: false,
+        mtu: null,
+        license: License.free,
+      );
       _connectedDevice = device;
       _connectionController.add(true);
       log("Connected. Discovering services...");
@@ -53,38 +63,77 @@ class BleService {
       if (device.platformName.isNotEmpty) {
         log("Device Name: ${device.platformName}");
       }
-      
+
       // Request Mtu
       try {
-         await device.requestMtu(512);
-         log("MTU requested");
+        await device.requestMtu(512);
+        log("MTU requested");
       } catch (e) {
         log("MTU request failed: $e");
       }
 
       List<BluetoothService> services = await device.discoverServices();
+      _services = services;
       log("Services discovered: ${services.length}");
-      
+
+      // Auto-detect profile
+      _currentProfile = DeviceProfileManager.findProfile(services);
+      if (_currentProfile != null) {
+        log(
+          "Profile detected: ${_currentProfile!.name} (protocol: ${_currentProfile!.protocol})",
+        );
+      } else {
+        log("No profile detected, using default search");
+      }
+
+      // Collect all known UUIDs for search
+      final knownWriteUuids = DeviceProfileManager.getAllWriteUuids();
+      final knownNotifyUuids = DeviceProfileManager.getAllNotifyUuids();
+
       for (var service in services) {
         log("Service: ${service.uuid}");
         for (var char in service.characteristics) {
-           log("  Char: ${char.uuid} (Props: ${char.properties})");
-           if (char.uuid.toString().toLowerCase().contains("ffe1")) { 
-              if (char.properties.write || char.properties.writeWithoutResponse) {
-                _writeCharacteristic = char;
-                log("  -> Write Char Found (ffe1)");
+          log("  Char: ${char.uuid} (Props: ${char.properties})");
+
+          final uuid = char.uuid.toString().toLowerCase();
+
+          // Check if this is a write characteristic
+          if ((char.properties.write || char.properties.writeWithoutResponse) &&
+              (knownWriteUuids.contains(uuid) ||
+                  _writeCharacteristic == null)) {
+            _writeCharacteristic = char;
+            log("  -> Write Char Found ($uuid)");
+          }
+
+          // Check if this is a notify characteristic
+          if ((char.properties.notify || char.properties.indicate) &&
+              (knownNotifyUuids.contains(uuid) ||
+                  _notifyCharacteristic == null)) {
+            _notifyCharacteristic = char;
+            await char.setNotifyValue(true);
+            char.lastValueStream.listen((value) {
+              final hexStr = value
+                  .map((e) => e.toRadixString(16).padLeft(2, '0'))
+                  .join(' ');
+              _dataController.add(value);
+              log("RX: $hexStr");
+
+              // Auto-detect protocol from response if no profile matched
+              if (_currentProfile == null && value.isNotEmpty) {
+                final detected = ProtocolHandler.detectProtocol(value);
+                _currentProfile = DeviceProfile(
+                  name: 'auto',
+                  writeUuids: [
+                    _writeCharacteristic?.uuid.toString().toLowerCase() ?? '',
+                  ],
+                  notifyUuids: [uuid],
+                  protocol: detected,
+                );
+                log("Protocol auto-detected: $detected");
               }
-              if (char.properties.notify || char.properties.indicate) {
-                await char.setNotifyValue(true);
-                char.lastValueStream.listen((value) {
-                   // Convert bytes to hex string for logging
-                   final hexStr = value.map((e) => e.toRadixString(16).padLeft(2, '0')).join(' ');
-                   _dataController.add(value);
-                   log("RX: $hexStr");
-                });
-                log("  -> Notify Char Found & Enabled (ffe1)");
-              }
-           }
+            });
+            log("  -> Notify Char Found & Enabled ($uuid)");
+          }
         }
       }
     } catch (e) {
@@ -97,14 +146,86 @@ class BleService {
     await _connectedDevice?.disconnect();
     _connectedDevice = null;
     _writeCharacteristic = null;
+    _notifyCharacteristic = null;
+    _currentProfile = null;
     _connectionController.add(false);
     log("Disconnected");
   }
 
   Future<void> writeData(List<int> data) async {
     if (_writeCharacteristic != null) {
-      await _writeCharacteristic!.write(data, withoutResponse: true);
+      final withoutResponse =
+          _writeCharacteristic!.properties.writeWithoutResponse;
+      await _writeCharacteristic!.write(data, withoutResponse: withoutResponse);
+      log(
+        "TX: ${data.map((e) => e.toRadixString(16).padLeft(2, '0')).join(' ')}",
+      );
     }
+  }
+
+  Future<void> writeDataByProfile(List<int> data) async {
+    if (_writeCharacteristic == null || _currentProfile == null) return;
+
+    final withoutResponse =
+        _writeCharacteristic!.properties.writeWithoutResponse;
+    await _writeCharacteristic!.write(data, withoutResponse: withoutResponse);
+    log(
+      "TX [${_currentProfile!.name}]: ${data.map((e) => e.toRadixString(16).padLeft(2, '0')).join(' ')}",
+    );
+  }
+
+  Future<void> sendStartCommand() async {
+    if (_writeCharacteristic == null || _currentProfile == null) {
+      log("Cannot send start: no characteristic or profile");
+      return;
+    }
+
+    Uint8List packet;
+    switch (_currentProfile!.protocol) {
+      case ProtocolType.a:
+        packet = ProtocolHandler.startProtocolC();
+        break;
+      case ProtocolType.b:
+        packet = ProtocolHandler.startProtocolC();
+        break;
+      case ProtocolType.c:
+        packet = ProtocolHandler.startProtocolC();
+        break;
+    }
+
+    final withoutResponse =
+        _writeCharacteristic!.properties.writeWithoutResponse;
+    await _writeCharacteristic!.write(packet, withoutResponse: withoutResponse);
+    log(
+      "TX Start: ${packet.map((e) => e.toRadixString(16).padLeft(2, '0')).join(' ')}",
+    );
+  }
+
+  Future<void> sendStopCommand() async {
+    if (_writeCharacteristic == null || _currentProfile == null) {
+      log("Cannot send stop: no characteristic or profile");
+      return;
+    }
+
+    Uint8List packet;
+    switch (_currentProfile!.protocol) {
+      case ProtocolType.a:
+        packet = ProtocolHandler.stopProtocolC();
+        break;
+      case ProtocolType.b:
+        packet = ProtocolHandler.stopProtocolC();
+        break;
+      case ProtocolType.c:
+        packet = ProtocolHandler.stopProtocolC();
+        break;
+    }
+
+    final withoutResponse =
+        _writeCharacteristic!.properties.writeWithoutResponse;
+    await _writeCharacteristic!.write(packet, withoutResponse: withoutResponse);
+    log(
+      "TX Stop: ${packet.map((e) => e.toRadixString(16).padLeft(2, '0')).join(' ')}",
+    );
   }
 
   void dispose() {

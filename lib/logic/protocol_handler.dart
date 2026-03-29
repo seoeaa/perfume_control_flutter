@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import '../ble/device_profile.dart';
 
 class ProtocolHandler {
   // Protocol A Constants
@@ -93,6 +94,7 @@ class ProtocolHandler {
   static Uint8List setIntensityB(int channel, int level) {
     return buildProtocolB(data: [0x03, channel, level]);
   }
+
   /// Parses Protocol B Status Packet (starting with 0xA5)
   static DeviceStatus? parseStatusB(List<int> data) {
     // Example: a5 00 13 60 25 28 05 05 f5 64 64 64 80 00 0d 05 05 00 0c 10 fa be 11
@@ -104,17 +106,17 @@ class ProtocolHandler {
       // Index 10: Level B (0-100)
       // Index 11: Level C (0-100)
       // Index 12: Flags (0x80 = Power On?)
-      
+
       int levelA = data[9];
       int levelB = data[10];
       int levelC = data[11];
       int flags = data[12];
-      
-      bool powerOn = (flags & 0x80) != 0; 
+
+      bool powerOn = (flags & 0x80) != 0;
       // Other flags?
-      // 0x80 = 1000 0000. 
+      // 0x80 = 1000 0000.
       // Maybe bit 0 is Fan? bit 1 is Ion?
-      
+
       return DeviceStatus(
         levelA: levelA,
         levelB: levelB,
@@ -126,40 +128,83 @@ class ProtocolHandler {
       return null;
     }
   }
+
   /// Parses Protocol A Packet (starting with 0x7E)
   static ProtocolACommand? parseProtocolA(List<int> data) {
-    // Example: 7e 06 02 05 01 ff ff 00 ef
-    // Header: 7E
-    // Length: 06 (excluding header/footer?) - actually length of payload + markers? 02 05 01 ff ff 00 = 6 bytes? No.
-    // Let's look at buildProtocolA: 7E [Cmd] [Data...] [FF FF 00] EF
-    // Received: 7E 06 02 05 01 FF FF 00 EF
-    // 06 = Length of [02 05 01 FF FF 00]? 6 bytes. Yes.
-    // Cmd = 02 ?? Or is 02 the command and 05 01 the data?
-    // In build: setIntensityA used command 0x06, data [0x02, channel+5, level]
-    // The response seems to be: 7E [Len] [Cmd=02?] [Channel] [Level] [Markers] EF
-    
     if (data.length < 5 || data[0] != 0x7E) return null;
 
     try {
       int len = data[1];
-      int cmd = data[2]; // 0x02 based on logs
-      
+      int cmd = data[2];
+
       if (cmd == 0x02) {
-        int param1 = data[3]; // Channel + 5 (5=A, 6=B, 7=C)
-        int param2 = data[4]; // Level (0, 1, 2, 3)
-        // 0x02 0x01 = Ion/Fragrance On/Off?
-        // 0x02 0x02 = Ion/Fragrance?
-        
-        return ProtocolACommand(
-          command: cmd,
-          param1: param1,
-          param2: param2,
-        );
+        int param1 = data[3];
+        int param2 = data[4];
+
+        return ProtocolACommand(command: cmd, param1: param1, param2: param2);
       }
       return null;
     } catch (e) {
       return null;
     }
+  }
+
+  // ========== Protocol C: AA 55 ... ==========
+  static const int headerC1 = 0xAA;
+  static const int headerC2 = 0x55;
+
+  /// Builds a packet for Protocol C
+  /// Format: [0xAA] [0x55] [Cmd] [Data...] [Checksum]
+  static Uint8List buildProtocolC(int command, List<int> data) {
+    List<int> packet = [headerC1, headerC2, command, ...data];
+    int checksum = packet.fold(0, (sum, item) => (sum + item) & 0xFF);
+    packet.add(checksum);
+    return Uint8List.fromList(packet);
+  }
+
+  /// Universal packet builder
+  static Uint8List buildPacket(
+    ProtocolType protocol,
+    int command,
+    List<int> data,
+  ) {
+    switch (protocol) {
+      case ProtocolType.a:
+        return buildProtocolA(command: command, data: data);
+      case ProtocolType.b:
+        return buildProtocolB(data: data);
+      case ProtocolType.c:
+        return buildProtocolC(command, data);
+    }
+  }
+
+  /// Detects protocol from notify response
+  static ProtocolType detectProtocol(List<int> response) {
+    if (response.isEmpty) return ProtocolType.a;
+
+    switch (response.first) {
+      case 0x7E:
+        return ProtocolType.a;
+      case 0x55:
+        return ProtocolType.b;
+      case 0xAA:
+        return ProtocolType.c;
+      default:
+        return ProtocolType.a;
+    }
+  }
+
+  // ========== Protocol C Commands ==========
+  static Uint8List startProtocolC() {
+    return buildProtocolC(0x01, [0x01]);
+  }
+
+  static Uint8List stopProtocolC() {
+    return buildProtocolC(0x01, [0x00]);
+  }
+
+  static Uint8List setIntensityC(int channel, int level) {
+    return buildProtocolC(0x03, [channel, level]);
   }
 }
 
@@ -168,7 +213,11 @@ class ProtocolACommand {
   final int param1; // Often Channel or Feature
   final int param2; // Often Level or State
 
-  ProtocolACommand({required this.command, required this.param1, required this.param2});
+  ProtocolACommand({
+    required this.command,
+    required this.param1,
+    required this.param2,
+  });
 
   @override
   String toString() {
