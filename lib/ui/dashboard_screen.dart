@@ -163,7 +163,7 @@ class DashboardScreen extends StatelessWidget {
 
                   // Scent Channels
                   ...List.generate(3, (index) {
-                    final labels = ['Аромат A', 'Аромат B', 'Аромат C'];
+                    final scentName = bluetoothProvider.scentNames[index] ?? 'Аромат ${String.fromCharCode(65 + index)}';
                     final channelIntensity = bluetoothProvider.getIntensity(index);
                     final isActive = channelIntensity > 0;
 
@@ -177,42 +177,59 @@ class DashboardScreen extends StatelessWidget {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Row(
-                                  children: [
-                                    Container(
-                                      width: 40,
-                                      height: 40,
-                                      decoration: BoxDecoration(
-                                        color: isActive
-                                            ? Colors.blueAccent.withOpacity(0.2)
-                                            : Colors.white10,
-                                        borderRadius: BorderRadius.circular(12),
+                                Expanded(
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 40,
+                                        height: 40,
+                                        decoration: BoxDecoration(
+                                          color: isActive
+                                              ? Colors.blueAccent.withOpacity(0.2)
+                                              : Colors.white10,
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: requestIdToIcon(index, isActive),
                                       ),
-                                      child: requestIdToIcon(index, isActive),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          labels[index],
-                                          style: GoogleFonts.outfit(
-                                            color: Colors.white,
-                                            fontSize: 18,
-                                            fontWeight: FontWeight.w600,
-                                          ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Flexible(
+                                                  child: Text(
+                                                    scentName,
+                                                    style: GoogleFonts.outfit(
+                                                      color: Colors.white,
+                                                      fontSize: 18,
+                                                      fontWeight: FontWeight.w600,
+                                                    ),
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                                IconButton(
+                                                  icon: const Icon(Icons.edit, size: 14, color: Colors.white38),
+                                                  padding: const EdgeInsets.only(left: 8),
+                                                  constraints: const BoxConstraints(),
+                                                  onPressed: () => _editScentName(context, bluetoothProvider, index),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'Остаток: ${bluetoothProvider.getFluidLevel(index)}%',
+                                              style: GoogleFonts.outfit(
+                                                color: Colors.white70,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          'Остаток: ${bluetoothProvider.getFluidLevel(index)}%',
-                                          style: GoogleFonts.outfit(
-                                            color: Colors.white70,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
+                                      ),
+                                    ],
+                                  ),
                                 ),
                                 Switch(
                                   value: isActive,
@@ -676,6 +693,47 @@ class DashboardScreen extends StatelessWidget {
               },
             );
           },
+        );
+      },
+    );
+  }
+
+  void _editScentName(BuildContext context, BluetoothProvider provider, int index) {
+    final controller = TextEditingController(text: provider.scentNames[index]);
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E293B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Text(
+            'Название аромата ${String.fromCharCode(65 + index)}',
+            style: GoogleFonts.outfit(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            style: GoogleFonts.outfit(color: Colors.white),
+            decoration: InputDecoration(
+              labelText: 'Название',
+              labelStyle: const TextStyle(color: Colors.white38),
+              enabledBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.white24)),
+              focusedBorder: const UnderlineInputBorder(borderSide: BorderSide(color: Colors.blueAccent)),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Отмена', style: GoogleFonts.outfit(color: Colors.white38)),
+            ),
+            TextButton(
+              onPressed: () {
+                provider.updateScentName(index, controller.text);
+                Navigator.pop(context);
+              },
+              child: Text('Сохранить', style: GoogleFonts.outfit(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+            ),
+          ],
         );
       },
     );

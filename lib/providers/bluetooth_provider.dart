@@ -3,6 +3,7 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../services/ble_service.dart';
 import '../logic/protocol_handler.dart';
 import '../ble/device_profile.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class BluetoothProvider with ChangeNotifier {
   final BleService _bleService = BleService();
@@ -21,6 +22,13 @@ class BluetoothProvider with ChangeNotifier {
   // Fluid Levels (0-100%)
   final Map<int, int> _fluidLevels = {0: 0, 1: 0, 2: 0};
 
+  // Scent Names (Customizable)
+  Map<int, String> _scentNames = {
+    0: 'Summer (Лето)',
+    1: 'Ocean (Океан)',
+    2: 'Wood (Лес)',
+  };
+
   // Debug Logs
   List<String> _logs = [];
   DeviceStatus? _lastParsedStatus;
@@ -35,6 +43,7 @@ class BluetoothProvider with ChangeNotifier {
   int getFluidLevel(int channel) => _fluidLevels[channel] ?? 100;
   List<String> get logs => _logs;
   ProtocolType? get manualProtocol => _manualProtocol;
+  Map<int, String> get scentNames => _scentNames;
 
   bool get isResearchMode {
     final name = _bleService.currentDevice?.platformName.toLowerCase() ?? '';
@@ -67,8 +76,6 @@ class BluetoothProvider with ChangeNotifier {
     _logs.clear();
     notifyListeners();
   }
-
-
 
   String _hex(List<int> bytes) =>
       bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
@@ -137,7 +144,9 @@ class BluetoothProvider with ChangeNotifier {
 
     _lastParsedStatus = current;
   }
+
   BluetoothProvider() {
+    _loadScentNames();
     _bleService.connectionStatus.listen((status) {
       _isConnected = status;
       addToLog(status ? "Connected successfully" : "Disconnected");
@@ -428,6 +437,33 @@ class BluetoothProvider with ChangeNotifier {
       _bleService.writeData(Uint8List.fromList(bytes));
     } catch (e) {
       addToLog("RESEARCH ERROR: Invalid Hex input");
+    }
+  }
+
+  Future<void> _loadScentNames() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final name0 = prefs.getString('scent_name_0');
+      final name1 = prefs.getString('scent_name_1');
+      final name2 = prefs.getString('scent_name_2');
+
+      if (name0 != null) _scentNames[0] = name0;
+      if (name1 != null) _scentNames[1] = name1;
+      if (name2 != null) _scentNames[2] = name2;
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading scent names: $e');
+    }
+  }
+
+  Future<void> updateScentName(int index, String newName) async {
+    _scentNames[index] = newName;
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('scent_name_$index', newName);
+    } catch (e) {
+      debugPrint('Error saving scent name: $e');
     }
   }
 
