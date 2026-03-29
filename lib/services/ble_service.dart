@@ -92,7 +92,6 @@ class BleService {
           _handleDisconnectedByDevice();
         }
       });
-      _connectionController.add(true);
       log("Session #$_sessionId | Connected. Discovering services...");
 
       if (device.platformName.isNotEmpty) {
@@ -207,6 +206,9 @@ class BleService {
       log(
         "Session #$_sessionId | Active channels | write=${_writeCharacteristic?.uuid} mirror=${_mirrorWriteCharacteristic?.uuid} notify=${_notifyCharacteristic?.uuid}",
       );
+
+      // ONLY NOW notify listeners that we are fully connected and ready
+      _connectionController.add(true);
     } catch (e) {
       log("Session #$_sessionId | Connection Error: $e");
       disconnect();
