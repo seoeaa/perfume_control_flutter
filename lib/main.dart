@@ -37,7 +37,9 @@ class PerfumeControlApp extends StatelessWidget {
           brightness: Brightness.dark,
         ),
       ),
-      home: const DashboardScreen(),
+      home: Consumer<BluetoothProvider>(
+        builder: (context, provider, child) => DashboardScreen(provider: provider),
+      ),
       navigatorKey: navigatorKey,
       builder: (context, child) {
         return _AppUpdateWrapper(child: child!);

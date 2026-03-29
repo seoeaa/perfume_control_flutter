@@ -73,6 +73,21 @@ class ProtocolHandler {
     return Uint8List.fromList(packet);
   }
 
+  /// Validates Protocol C checksum: (Sum of Cmd + Data) - 1
+  static bool _validateChecksumC(List<int> data) {
+    if (data.length < 4) return false;
+    // Packet: [AA] [55] [Cmd] [Payload...] [Checksum]
+    int cmd = data[2];
+    int expectedCrc = data.last;
+    
+    int sum = cmd;
+    for (int i = 3; i < data.length - 1; i++) {
+      sum += data[i];
+    }
+    
+    return ((sum - 1) & 0xFF) == expectedCrc;
+  }
+
   /// Builds an AT command packet (ASCII string + \r\n)
   static Uint8List buildATCommand(String cmd) {
     if (!cmd.toUpperCase().startsWith('AT')) {
@@ -244,8 +259,10 @@ class ProtocolHandler {
       return ProtocolType.a;
     }
 
-    if (response.length > 1 && response[0] == headerC1 && response[1] == headerC2) {
-      return ProtocolType.c;
+    if (response.length > 3 && response[0] == headerC1 && response[1] == headerC2) {
+      if (_validateChecksumC(response)) {
+        return ProtocolType.c;
+      }
     }
     if (response.first == headerC1) { // 0xAA fallback
       return ProtocolType.c;
@@ -329,26 +346,40 @@ class ProtocolHandler {
   /// Parses Protocol C Packet (AA 55 Cmd Data... Sum-1)
   static DeviceStatus? parseStatusC(List<int> data) {
     if (data.length < 4 || data[0] != 0xAA || data[1] != 0x55) return null;
+    if (!_validateChecksumC(data)) return null;
 
     int cmd = data[2];
-    // Command 0x03 usually carries levels in research boards
+    
+    // Command 0x03: Channel Intensity Status
     if (cmd == 0x03 && data.length >= 6) {
       return DeviceStatus(
         levelA: data[3],
         levelB: data[4],
         levelC: data[5],
         flags: data.length > 6 ? data[6] : 0,
-        powerOn: true, // We'll infer this from levels or flags
+        powerOn: true,
         rawBytes: List<int>.from(data),
       );
     }
     
-    // Command 0x01 might be power state confirmation
+    // Command 0x01: Power State Confirmation
     if (cmd == 0x01 && data.length >= 4) {
       return DeviceStatus(
-        levelA: 0, levelB: 0, levelC: 0,
+        levelA: 0, levelB: 0, levelC: 0, // Keep current levels if possible, but Status object is static here
         flags: 0,
         powerOn: data[3] == 0x01,
+        rawBytes: List<int>.from(data),
+      );
+    }
+
+    // Command 0x05: Ionization State Confirmation
+    if (cmd == 0x05 && data.length >= 4) {
+      return DeviceStatus(
+        levelA: -1, // Special value to indicate "don't update levels"
+        levelB: -1,
+        levelC: -1,
+        flags: data[3], // Use flags to pass ion state (1=ON, 0=OFF)
+        powerOn: true,
         rawBytes: List<int>.from(data),
       );
     }

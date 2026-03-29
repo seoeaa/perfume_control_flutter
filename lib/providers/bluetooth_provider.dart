@@ -81,8 +81,8 @@ class BluetoothProvider with ChangeNotifier {
     return _logs.join('\n');
   }
 
-  String _hex(List<int> bytes) =>
-      bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(' ');
+  String hexFromBytes(List<int> bytes) =>
+      bytes.map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase()).join(' ');
 
   void _logStatusDiff(DeviceStatus current) {
     final previous = _lastParsedStatus;
@@ -139,8 +139,8 @@ class BluetoothProvider with ChangeNotifier {
         addToLog(
           '  ⚠ unknown byte changes: $changedBytes (possible undiscovered fields)',
         );
-        addToLog('  WAS: ${_hex(previous.rawBytes)}');
-        addToLog('  NOW: ${_hex(current.rawBytes)}');
+        addToLog('  WAS: ${hexFromBytes(previous.rawBytes)}');
+        addToLog('  NOW: ${hexFromBytes(current.rawBytes)}');
       }
 
       addToLog('━━━━━━━━━━━━━━━━━━━');
@@ -264,17 +264,40 @@ class BluetoothProvider with ChangeNotifier {
           final status = ProtocolHandler.parseStatusC(data);
           if (status != null) {
             _logStatusDiff(status);
-            if (status.levelA > 10) _fluidLevels[0] = status.levelA;
-            if (status.levelB > 10) _fluidLevels[1] = status.levelB;
-            if (status.levelC > 10) _fluidLevels[2] = status.levelC;
             
-            if (!_isManualOverride) {
-              _isPowerOn = status.powerOn;
-              if (status.levelA <= 3) _intensities[0] = status.levelA;
-              if (status.levelB <= 3) _intensities[1] = status.levelB;
-              if (status.levelC <= 3) _intensities[2] = status.levelC;
+            if (status.levelA == -1) {
+              // Special case: Ionization update (cmd 0x05)
+              _ionEnabled = status.flags == 1;
+            } else {
+              // Standard status update (cmd 0x03 or 0x01)
+              if (status.levelA > 10) _fluidLevels[0] = status.levelA;
+              if (status.levelB > 10) _fluidLevels[1] = status.levelB;
+              if (status.levelC > 10) _fluidLevels[2] = status.levelC;
+              
+              if (!_isManualOverride) {
+                _isPowerOn = status.powerOn;
+                if (status.levelA >= 0 && status.levelA <= 3) _intensities[0] = status.levelA;
+                if (status.levelB >= 0 && status.levelB <= 3) _intensities[1] = status.levelB;
+                if (status.levelC >= 0 && status.levelC <= 3) _intensities[2] = status.levelC;
+              }
             }
             notifyListeners();
+          }
+        }
+        // --- ADDED: ASCII / AT Command handling ---
+        // If data doesn't match any binary protocol but we are connected
+        if (!_isBinaryProtocol(data)) {
+          try {
+            String text = String.fromCharCodes(data).trim();
+            if (text.isNotEmpty && _isPrintable(text)) {
+              addToLog("RX String: \"$text\"");
+              // Potential handling for future AT-based status
+              if (text.contains("OK") || text.contains("ERROR")) {
+                // Just log for now
+              }
+            }
+          } catch (_) {
+            // Not a string, ignore
           }
         }
       } catch (e) {
@@ -283,7 +306,23 @@ class BluetoothProvider with ChangeNotifier {
     });
   }
 
-  Future<void> scanAndConnect() async {
+  bool _isBinaryProtocol(List<int> data) {
+    if (data.isEmpty) return false;
+    // Protocol A: 0x7E
+    if (data[0] == 0x7E) return true;
+    // Protocol B: 0xA5 or 0x05 0x05
+    if (data[0] == 0xA5) return true;
+    if (data.length > 1 && data[0] == 0x05 && data[1] == 0x05) return true;
+    // Protocol C: 0xAA 0x55
+    if (data.length > 1 && data[0] == 0xAA && data[1] == 0x55) return true;
+    return false;
+  }
+
+  bool _isPrintable(String s) {
+    return s.runes.every((r) => (r >= 32 && r <= 126) || r == 10 || r == 13);
+  }
+
+  Future<void> startScan() async {
     addToLog("Starting scan...");
     bool hasPermission = await _bleService.requestPermissions();
     if (!hasPermission) {
@@ -307,7 +346,23 @@ class BluetoothProvider with ChangeNotifier {
     });
   }
 
-  Future<void> connectToDevice(BluetoothDevice device) async {
+  Future<void> disconnect() async {
+    await _bleService.disconnect();
+    _isConnected = false;
+    notifyListeners();
+  }
+
+  Future<void> connectToDevice(dynamic result) async {
+    BluetoothDevice device;
+    if (result is ScanResult) {
+      device = result.device;
+    } else if (result is BluetoothDevice) {
+      device = result;
+    } else {
+      addToLog("Error: Invalid device type for connection");
+      return;
+    }
+
     addToLog(
       "UI Action: connectToDevice(name=${device.platformName.isNotEmpty ? device.platformName : 'unknown'}, id=${device.remoteId})",
     );
@@ -609,9 +664,14 @@ class BluetoothProvider with ChangeNotifier {
   }
 
   Future<void> runAutoProbe() async {
-    addToLog("🚀 STARTING AUTO-PROBE for Research Board...");
+    if (logs.any((l) => l.contains("ATE0") || l.contains("BW16"))) {
+      await probeBW16();
+      return;
+    }
+
+    addToLog("🚀 STARTING GENERIC AUTO-PROBE...");
     
-    final atCommands = ['AT', 'ATE1', 'AT+GMR', 'AT+NAME?', 'AT+VERSION', 'AT+ADDR?', 'AT+BAUD?', 'AT+MAC?'];
+    final atCommands = ['AT', 'ATE1', 'AT+GMR', 'AT+NAME?', 'AT+VERSION', 'AT+ADDR?', 'AT+BAUD?'];
     for (var cmd in atCommands) {
       if (!_isConnected) return;
       sendATCommand(cmd);
@@ -619,7 +679,6 @@ class BluetoothProvider with ChangeNotifier {
     }
 
     addToLog("🔬 Probing Protocol C commands...");
-    // Probe basic commands 1 to 7
     for (int i = 1; i <= 7; i++) {
       if (!_isConnected) return;
       addToLog("PROBE: Protocol C CMD 0x${i.toRadixString(16)}");
@@ -627,7 +686,30 @@ class BluetoothProvider with ChangeNotifier {
       await Future.delayed(const Duration(milliseconds: 1000));
     }
 
-    addToLog("✅ AUTO-PROBE FINISHED. Check logs above for responses.");
+    addToLog("✅ AUTO-PROBE FINISHED");
+  }
+
+  Future<void> probeBW16() async {
+    addToLog("🔍 STARTING BW16 (Realtek) PROBE...");
+    final bw16Commands = [
+      'AT',
+      'ATE1',
+      'AT+GMR',
+      'AT+HELP',
+      'AT+NAME?',
+      'AT+ADDR?',
+      'AT+BCONN?', 
+      'AT+SCENT?',
+      'AT+WORK?',
+      'AT+PWR?',
+      'AT+ION?',
+    ];
+    for (var cmd in bw16Commands) {
+      if (!_isConnected) return;
+      sendATCommand(cmd);
+      await Future.delayed(const Duration(milliseconds: 1200));
+    }
+    addToLog("✅ BW16 PROBE FINISHED");
   }
 
   @override
