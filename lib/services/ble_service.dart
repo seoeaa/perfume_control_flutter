@@ -32,6 +32,7 @@ class BleService {
   int _txCounter = 0;
   int _rxCounter = 0;
   DateTime? _lastWriteAt;
+  List<int>? _lastTxPayload;
   static const Duration _minWriteInterval = Duration(milliseconds: 150);
   StreamSubscription<BluetoothConnectionState>? _deviceStateSub;
   List<int>? _lastRxValue;
@@ -80,7 +81,7 @@ class BleService {
       log(
         "Session #$_sessionId | Attempt #$_connectionAttempts | Connecting to ${device.remoteId}...",
       );
-      await (device as dynamic).connect(
+      await device.connect(
         autoConnect: false,
         mtu: null,
         license: License.free,
@@ -246,7 +247,17 @@ class BleService {
     final uuid = char.uuid.toString().toLowerCase();
     char.lastValueStream.listen((value) {
       _rxCounter += 1;
-      
+
+      // Suppress loopback echo: some BLE modules mirror our own writes back as
+      // notifications on the same characteristic. Ignore an RX that exactly
+      // matches a recent TX within a short window.
+      if (_lastTxPayload != null && _lastWriteAt != null) {
+        final echoDt = DateTime.now().difference(_lastWriteAt!);
+        if (echoDt.inMilliseconds < 600 && listEquals(_lastTxPayload, value)) {
+          return;
+        }
+      }
+
       bool changed = _lastRxValue == null || !listEquals(_lastRxValue, value);
       _lastRxValue = List<int>.from(value);
 
@@ -334,6 +345,7 @@ class BleService {
   }) async {
     try {
       await _writeWithRateLimit(characteristic, data);
+      _lastTxPayload = List<int>.from(data);
       final withoutResponse = characteristic.properties.writeWithoutResponse;
       log(
         "Session #$_sessionId | $label | len=${data.length} | withoutResponse=$withoutResponse | ${_hex(data)}",

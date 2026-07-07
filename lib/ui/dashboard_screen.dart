@@ -248,9 +248,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
       children: [
         Expanded(
           child: _controlCard(
-            'Power', 
-            Icons.power_settings_new, 
-            widget.provider.isPowerOn, 
+            'Power',
+            Icons.power_settings_new,
+            widget.provider.isPowerOn,
             (val) => widget.provider.togglePower(),
             Colors.greenAccent
           ),
@@ -258,11 +258,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
         const SizedBox(width: 16),
         Expanded(
           child: _controlCard(
-            'Ionization', 
-            Icons.waves, 
-            widget.provider.ionEnabled, 
+            'Ionization',
+            Icons.waves,
+            widget.provider.ionEnabled,
             (val) => widget.provider.toggleIon(),
             Colors.blueAccent
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: _controlCard(
+            'Fragrance',
+            Icons.spa,
+            widget.provider.fragranceEnabled,
+            (val) => widget.provider.toggleFragrance(),
+            Colors.purpleAccent
           ),
         ),
       ],
@@ -316,7 +326,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               Switch(
                 value: intensity > 0,
                 onChanged: (val) => widget.provider.setChannelIntensity(index, val ? 1 : 0),
-                activeColor: Colors.blueAccent,
+                activeThumbColor: Colors.blueAccent,
               ),
             ],
           ),
@@ -393,7 +403,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeColor: activeColor,
+            activeThumbColor: activeColor,
           ),
         ],
       ),

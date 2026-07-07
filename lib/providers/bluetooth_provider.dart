@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../services/ble_service.dart';
@@ -31,7 +32,10 @@ class BluetoothProvider with ChangeNotifier {
 
   // Debug Logs
   final List<String> _logs = [];
+  static const int _maxLogs = 500;
   DeviceStatus? _lastParsedStatus;
+
+  final List<StreamSubscription> _subscriptions = [];
 
   bool get isConnected => _isConnected;
   bool get isScanning => _isScanning;
@@ -69,6 +73,9 @@ class BluetoothProvider with ChangeNotifier {
     final logMsg = "[$timestamp] $message";
     debugPrint("UI: $logMsg");
     _logs.add(logMsg);
+    if (_logs.length > _maxLogs) {
+      _logs.removeRange(0, _logs.length - _maxLogs);
+    }
     notifyListeners();
   }
 
@@ -151,7 +158,7 @@ class BluetoothProvider with ChangeNotifier {
 
   BluetoothProvider() {
     _loadSettings();
-    _bleService.connectionStatus.listen((status) {
+    _subscriptions.add(_bleService.connectionStatus.listen((status) {
       _isConnected = status;
       addToLog(status ? "Connected successfully" : "Disconnected");
       if (status) {
@@ -203,18 +210,18 @@ class BluetoothProvider with ChangeNotifier {
         _lastParsedStatus = null;
       }
       notifyListeners();
-    });
+    }));
 
-    _bleService.scanResults.listen((results) {
+    _subscriptions.add(_bleService.scanResults.listen((results) {
       _discoveredDevices = results;
       notifyListeners();
-    });
+    }));
 
-    _bleService.logStream.listen((message) {
+    _subscriptions.add(_bleService.logStream.listen((message) {
       addToLog(message);
-    });
+    }));
 
-    _bleService.dataStream.listen((data) {
+    _subscriptions.add(_bleService.dataStream.listen((data) {
       if (data.isEmpty) return;
 
       final profile = _bleService.currentProfile;
@@ -303,7 +310,7 @@ class BluetoothProvider with ChangeNotifier {
       } catch (e) {
         addToLog("Parsing error: $e");
       }
-    });
+    }));
   }
 
   bool _isBinaryProtocol(List<int> data) {
@@ -714,6 +721,10 @@ class BluetoothProvider with ChangeNotifier {
 
   @override
   void dispose() {
+    for (final sub in _subscriptions) {
+      sub.cancel();
+    }
+    _subscriptions.clear();
     _bleService.dispose();
     super.dispose();
   }

@@ -22,7 +22,8 @@ class DeviceProfileManager {
       name: 'Fresh Air',
       // The "Good" board that works with Protocol B.
       // Often uses ffe1/ffe2 or fff1/fff2 but sends A5/55 packets.
-      writeUuids: ['ffe1', 'fff2'],
+      // ffe3 is the write-only command channel; ffe1 echoes writes back.
+      writeUuids: ['ffe3', 'ffe1', 'fff2'],
       notifyUuids: ['ffe2', 'fff1'],
       protocol: ProtocolType.b,
     ),
